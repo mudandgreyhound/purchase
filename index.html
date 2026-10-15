@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Purchase Summary — Greyhound Group</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f0f2f5;
+    --ink:#1a1d21; --ink-2:#5a626b; --muted:#9aa2ab; --border:#e3e6ea;
+    /* categorical (fixed order — ห้าม cycle): blue, orange, teal, magenta, gold
+       ผ่าน CVD validator (deutan/tritan ΔE OK) */
+    --c1:#3b6fb0; --c2:#d97b2e; --c3:#2a9d8f; --c4:#b5478f; --c5:#c9a227;
+    --accent:#3b6fb0;
+  }
+  :root[data-theme="dark"]{
+    --bg:#15181c; --surface:#1e2228; --surface-2:#262b31;
+    --ink:#e8eaed; --ink-2:#aab2bb; --muted:#6b737c; --border:#2e343b;
+    /* categorical คงชุดเดียวกับ light (ผ่าน CVD + contrast บน dark surface) */
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15181c; --surface:#1e2228; --surface-2:#262b31;
+      --ink:#e8eaed; --ink-2:#aab2bb; --muted:#6b737c; --border:#2e343b;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Sarabun","Noto Sans Thai",sans-serif;
+    font-size:14px;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;
+    justify-content:space-between;margin-bottom:16px}
+  h1{font-size:20px;margin:0;font-weight:700}
+  .sub{color:var(--ink-2);font-size:13px;margin-top:2px}
+  select,button{font:inherit;padding:7px 12px;border:1px solid var(--border);
+    border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  /* KPI cards */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:12px;margin-bottom:16px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:16px}
+  .kpi .label{color:var(--ink-2);font-size:12px;margin-bottom:6px}
+  .kpi .value{font-size:24px;font-weight:700;letter-spacing:-0.5px}
+  .kpi .unit{font-size:13px;color:var(--muted);font-weight:400}
+  .kpi.mom .value.up{color:var(--c4)} .kpi.mom .value.down{color:var(--c5)}
+  /* panels */
+  .grid{display:grid;grid-template-columns:1fr;gap:16px}
+  @media(min-width:860px){.grid.two{grid-template-columns:3fr 2fr}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:16px}
+  .panel h2{font-size:14px;margin:0 0 12px;font-weight:600}
+  .chart-box{position:relative;height:300px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+  th{color:var(--ink-2);font-weight:600;font-size:12px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar-cell{position:relative}
+  .bar-cell .fill{position:absolute;left:0;top:50%;transform:translateY(-50%);
+    height:60%;background:var(--c1);opacity:.15;border-radius:4px}
+  .loading{color:var(--muted);padding:40px;text-align:center}
+  .err{color:var(--c4);padding:16px;background:var(--surface-2);border-radius:8px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;
+    vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Purchase Summary — สรุปยอดจัดซื้อ</h1>
+      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
+    </div>
+    <div class="toolbar">
+      <select id="brandSel"></select>
+      <button id="themeBtn" title="สลับโหมดสี">🌓</button>
+    </div>
+  </header>
+
+  <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
+</div>
+
+<script>
+// ===== config =====
+const API = "https://purchase-api.mobile1234.site";
+const CAT = ["--c1","--c2","--c3","--c4","--c5"].map(v=>
+  getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const fmtB = n => "฿" + Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
+const fmtN = n => Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
+let charts = {};
+
+// ===== theme toggle =====
+document.getElementById("themeBtn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try{localStorage.setItem("pa-theme", next)}catch(e){}
+  if (lastBrand) load(lastBrand);  // re-render charts ให้สีตรง theme
+};
+try{const t=localStorage.getItem("pa-theme"); if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}
+
+// ===== fetch helper =====
+async function api(path){
+  const r = await fetch(API + path);
+  if(!r.ok) throw new Error(path+" → "+r.status);
+  return r.json();
+}
+
+let lastBrand = null;
+
+async function initBrands(){
+  const sel = document.getElementById("brandSel");
+  try{
+    const bs = await api("/api/brands");
+    sel.innerHTML = bs.map(b=>`<option value="${b.brand_code}">${b.brand_name}</option>`).join("");
+    sel.onchange = () => load(sel.value);
+    load(sel.value || "GHC");
+  }catch(e){
+    document.getElementById("app").innerHTML =
+      `<div class="err">เชื่อมต่อ API ไม่ได้: ${e.message}<br>เช็กว่า backend รันที่ ${API} แล้ว</div>`;
+  }
+}
+
+async function load(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
+  try{
+    const [kpi, mom, monthly, cats, sups] = await Promise.all([
+      api(`/api/summary/kpi?brand=${brand}`),
+      api(`/api/summary/mom?brand=${brand}`),
+      api(`/api/summary/monthly?brand=${brand}`),
+      api(`/api/summary/by-category?brand=${brand}`),
+      api(`/api/summary/by-supplier?brand=${brand}&limit=15`),
+    ]);
+    render(app, {kpi, mom, monthly, cats, sups});
+  }catch(e){
+    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+  }
+}
+
+function render(app, d){
+  const momUp = d.mom.pct_change > 0;
+  app.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="label">ยอดซื้อรวม</div>
+        <div class="value">${fmtB(d.kpi.total_purchase)}</div></div>
+      <div class="kpi"><div class="label">จำนวน PO</div>
+        <div class="value">${fmtN(d.kpi.po_count)} <span class="unit">ใบ</span></div></div>
+      <div class="kpi"><div class="label">Supplier</div>
+        <div class="value">${fmtN(d.kpi.supplier_count)} <span class="unit">ราย</span></div></div>
+      <div class="kpi"><div class="label">รายการสินค้า</div>
+        <div class="value">${fmtN(d.kpi.item_count)} <span class="unit">SKU</span></div></div>
+      <div class="kpi mom"><div class="label">เทียบเดือนก่อน (${d.mom.current_month||'-'})</div>
+        <div class="value ${momUp?'up':'down'}">
+          ${d.mom.pct_change==null?'-':(momUp?'▲':'▼')+' '+Math.abs(d.mom.pct_change)+'%'}</div></div>
+    </div>
+
+    <div class="grid two">
+      <div class="panel">
+        <h2>แนวโน้มยอดซื้อรายเดือน</h2>
+        <div class="chart-box"><canvas id="trendChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>สัดส่วนตามหมวด (Category)</h2>
+        <div class="chart-box"><canvas id="catChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <div class="panel">
+        <h2>Top 15 Supplier (ยอดซื้อสูงสุด)</h2>
+        <table><thead><tr>
+          <th>Supplier</th><th class="num">ยอดซื้อ</th><th class="num">PO</th>
+        </tr></thead><tbody id="supBody"></tbody></table>
+      </div>
+    </div>`;
+
+  drawTrend(d.monthly);
+  drawCategory(d.cats);
+  fillSuppliers(d.sups);
+}
+
+const gridColor = () => getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
+const inkColor  = () => getComputedStyle(document.documentElement).getPropertyValue("--ink-2").trim();
+
+function drawTrend(rows){
+  const ctx = document.getElementById("trendChart");
+  charts.trend = new Chart(ctx, {
+    type:"line",
+    data:{ labels: rows.map(r=>r.yr_mth),
+      datasets:[{ label:"ยอดซื้อ", data: rows.map(r=>+r.purchase_amount),
+        borderColor:CAT[0], backgroundColor:CAT[0]+"22", borderWidth:2,
+        pointRadius:3, pointHoverRadius:5, tension:.25, fill:true }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:c=>" "+fmtB(c.parsed.y) }}},
+      scales:{ x:{ grid:{color:gridColor()}, ticks:{color:inkColor(),maxRotation:60,minRotation:45}},
+        y:{ grid:{color:gridColor()}, ticks:{color:inkColor(),
+          callback:v=>"฿"+(v/1e6).toFixed(0)+"M"}}}}
+  });
+}
+
+function drawCategory(rows){
+  // รวมตาม category (ไม่ใช่ item_group ย่อย)
+  const agg={};
+  rows.forEach(r=>{ agg[r.category]=(agg[r.category]||0)+(+r.purchase_amount); });
+  const labels=Object.keys(agg), data=labels.map(k=>agg[k]);
+  const ctx=document.getElementById("catChart");
+  charts.cat=new Chart(ctx,{
+    type:"doughnut",
+    data:{ labels, datasets:[{ data,
+      backgroundColor:labels.map((_,i)=>CAT[i%CAT.length]),
+      borderColor:getComputedStyle(document.documentElement).getPropertyValue("--surface").trim(),
+      borderWidth:2 }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:"bottom",labels:{color:inkColor(),boxWidth:12,padding:12}},
+        tooltip:{ callbacks:{ label:c=>" "+c.label+": "+fmtB(c.parsed) }}}}
+  });
+}
+
+function fillSuppliers(rows){
+  const max = Math.max(...rows.map(r=>+r.purchase_amount), 1);
+  document.getElementById("supBody").innerHTML = rows.map(r=>`
+    <tr>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${r.vendor_name||r.vendor_acct||'(ไม่ระบุ)'}</span>
+      </td>
+      <td class="num">${fmtB(r.purchase_amount)}</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`).join("");
+}
+
+initBrands();
+</script>
+</body>
+</html>
