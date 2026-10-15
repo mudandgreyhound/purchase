@@ -36,6 +36,8 @@
   .sub{color:var(--ink-2);font-size:13px;margin-top:2px}
   select,button{font:inherit;padding:7px 12px;border:1px solid var(--border);
     border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer}
+  input{font:inherit;padding:7px 12px;border:1px solid var(--border);
+    border-radius:8px;background:var(--surface);color:var(--ink)}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   /* tabs */
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border)}
@@ -81,7 +83,7 @@
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Mud&hound Group</div>
+      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -92,6 +94,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="summary">สรุปยอดจัดซื้อ</button>
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
+    <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
   </div>
 
   <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
@@ -153,6 +156,7 @@ async function initBrands(){
 // dispatch ตามแท็บที่เลือก
 async function load(brand){
   if(currentTab==="outstanding") return loadOutstanding(brand);
+  if(currentTab==="price") return loadPrice(brand);
   return loadSummary(brand);
 }
 
@@ -544,6 +548,163 @@ function fillPoList(rows){
       <td class="num">${ST[r.purch_status]||r.purch_status}</td>
     </tr>`;
   }).join("");
+}
+
+// =============================================================================
+//  PRICE ANALYSIS (มุมที่ 3)
+// =============================================================================
+let priceDir = "all";   // ทิศทางที่กรองในตารางราคาเปลี่ยนแปลง
+
+async function loadPrice(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังโหลดราคา ${brand}…</div>`;
+  try{
+    const [changes, summary] = await Promise.all([
+      api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50`),
+      api(`/api/price/summary?brand=${brand}&limit=100`),
+    ]);
+    renderPrice(app, {brand, changes, summary});
+  }catch(e){
+    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+  }
+}
+
+function renderPrice(app, d){
+  app.innerHTML = `
+    <div class="panel">
+      <h2>รายการราคาซื้อเปลี่ยนแปลง (ล่าสุด vs ครั้งก่อน)
+        <span style="font-weight:400;font-size:12px;margin-left:8px">
+          <button class="tab ${priceDir==='all'?'active':''}" data-dir="all" style="padding:3px 10px;font-size:12px">ทั้งหมด</button>
+          <button class="tab ${priceDir==='up'?'active':''}" data-dir="up" style="padding:3px 10px;font-size:12px">ขึ้น ▲</button>
+          <button class="tab ${priceDir==='down'?'active':''}" data-dir="down" style="padding:3px 10px;font-size:12px">ลง ▼</button>
+        </span>
+      </h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>สินค้า</th><th>หมวด</th><th class="num">ราคาก่อน</th>
+        <th class="num">ราคาล่าสุด</th><th class="num">เปลี่ยน</th><th class="num">%</th>
+        <th class="num">วันล่าสุด</th>
+      </tr></thead><tbody id="priceChgBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>สรุปราคาวัตถุดิบ (ล่าสุด / เฉลี่ย / มาตรฐาน)
+        <span style="font-weight:400;font-size:12px;color:var(--muted);margin-left:8px">คลิกสินค้าเพื่อเทียบราคาระหว่าง supplier</span>
+      </h2>
+      <input id="priceSearch" placeholder="ค้นหาสินค้า (รหัส/ชื่อ)…" style="margin-bottom:10px;width:260px">
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>สินค้า</th><th>หมวด</th><th class="num">หน่วย</th>
+        <th class="num">ราคาล่าสุด</th><th class="num">เฉลี่ย</th>
+        <th class="num">มาตรฐาน</th><th class="num">vs มาตรฐาน</th>
+        <th class="num">Supplier</th>
+      </tr></thead><tbody id="priceSumBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="supCmpPanel" style="margin-top:16px;display:none">
+      <h2 id="supCmpTitle">เทียบราคาระหว่าง Supplier</h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Supplier</th><th class="num">ราคาเฉลี่ย</th><th class="num">ต่ำสุด</th>
+        <th class="num">สูงสุด</th><th class="num">ครั้งที่ซื้อ</th><th class="num">ซื้อล่าสุด</th>
+      </tr></thead><tbody id="supCmpBody"></tbody></table>
+      </div>
+    </div>`;
+
+  // ปุ่มกรองทิศทาง
+  document.querySelectorAll("[data-dir]").forEach(b=>{
+    b.onclick=()=>{ priceDir=b.dataset.dir; loadPrice(lastBrand); };
+  });
+  // ค้นหา
+  const si=document.getElementById("priceSearch");
+  si.onkeydown=async(e)=>{
+    if(e.key==="Enter"){
+      const rows=await api(`/api/price/summary?brand=${d.brand}&limit=100&search=${encodeURIComponent(si.value)}`);
+      fillPriceSummary(rows, d.brand);
+    }
+  };
+
+  fillPriceChanges(d.changes);
+  fillPriceSummary(d.summary, d.brand);
+}
+
+const fmtP = n => Number(n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function fillPriceChanges(rows){
+  const body=document.getElementById("priceChgBody");
+  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="7" style="color:var(--muted)">ไม่มีรายการราคาเปลี่ยน</td></tr>`; return; }
+  body.innerHTML=rows.map(r=>{
+    const pct=+r.pct_change||0, up=pct>0;
+    const badge=`<span class="badge ${up?'over':'ok'}" style="${up?'':'background:var(--c5);color:#fff'}">${up?'▲':'▼'} ${Math.abs(pct).toFixed(1)}%</span>`;
+    return `<tr>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
+      <td>${r.item_group||'-'}</td>
+      <td class="num">฿${fmtP(r.prev_price)}</td>
+      <td class="num"><b>฿${fmtP(r.latest_price)}</b></td>
+      <td class="num" style="color:${up?'var(--c4)':'var(--c5)'}">${up?'+':''}${fmtP(r.diff)}</td>
+      <td class="num">${badge}</td>
+      <td class="num">${r.latest_date||'-'}</td>
+    </tr>`;
+  }).join("");
+}
+
+function fillPriceSummary(rows, brand){
+  const body=document.getElementById("priceSumBody");
+  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="8" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
+  body.innerHTML=rows.map(r=>{
+    const std=+r.standard_price||0, latest=+r.latest_price||0;
+    let vsStd='-';
+    if(std>0 && latest>0){
+      const diff=(latest-std)/std*100;
+      const over=diff>0;
+      vsStd=`<span style="color:${over?'var(--c4)':'var(--c5)'}">${over?'+':''}${diff.toFixed(1)}%</span>`;
+    }
+    return `<tr style="cursor:pointer" data-item="${r.item_id}" data-name="${(r.item_name||'').replace(/"/g,'')}">
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
+      <td>${r.item_group||'-'}</td>
+      <td class="num">${r.purch_unit||'-'}</td>
+      <td class="num"><b>฿${fmtP(r.latest_price)}</b></td>
+      <td class="num">฿${fmtP(r.avg_price)}</td>
+      <td class="num">${std>0?'฿'+fmtP(std):'-'}</td>
+      <td class="num">${vsStd}</td>
+      <td class="num">${fmtN(r.vendor_count)} ราย</td>
+    </tr>`;
+  }).join("");
+  // คลิกแถว -> เทียบ supplier
+  body.querySelectorAll("tr[data-item]").forEach(tr=>{
+    tr.onclick=()=>showSupplierCompare(brand, tr.dataset.item, tr.dataset.name);
+  });
+}
+
+async function showSupplierCompare(brand, itemId, itemName){
+  const panel=document.getElementById("supCmpPanel");
+  const body=document.getElementById("supCmpBody");
+  document.getElementById("supCmpTitle").textContent=`เทียบราคา: ${itemId} ${itemName||''}`;
+  panel.style.display="block";
+  body.innerHTML=`<tr><td colspan="6" style="color:var(--muted)">กำลังโหลด…</td></tr>`;
+  panel.scrollIntoView({behavior:"smooth",block:"nearest"});
+  try{
+    const rows=await api(`/api/price/by-supplier?brand=${brand}&item_id=${encodeURIComponent(itemId)}`);
+    if(!rows.length){ body.innerHTML=`<tr><td colspan="6" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
+    const minP=Math.min(...rows.map(r=>+r.avg_price));
+    body.innerHTML=rows.map(r=>{
+      const cheapest=(+r.avg_price===minP);
+      return `<tr>
+        <td>${r.vendor_name}${cheapest?' <span class="badge" style="background:var(--c5);color:#fff">ถูกสุด</span>':''}</td>
+        <td class="num"><b>฿${fmtP(r.avg_price)}</b></td>
+        <td class="num">฿${fmtP(r.min_price)}</td>
+        <td class="num">฿${fmtP(r.max_price)}</td>
+        <td class="num">${fmtN(r.buy_count)}</td>
+        <td class="num">${r.last_buy||'-'}</td>
+      </tr>`;
+    }).join("");
+  }catch(e){
+    body.innerHTML=`<tr><td colspan="6" class="err">${e.message}</td></tr>`;
+  }
 }
 
 initBrands();
