@@ -125,18 +125,20 @@ async function initBrands(){
 
 async function load(brand){
   lastBrand = brand;
+  catDrill = null;   // reset drill-down เมื่อเปลี่ยน brand
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
   app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
   try{
-    const [kpi, mom, monthly, cats, sups] = await Promise.all([
+    const [kpi, mom, monthly, cats, sups, locs] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}`),
       api(`/api/summary/mom?brand=${brand}`),
       api(`/api/summary/monthly?brand=${brand}`),
       api(`/api/summary/by-category?brand=${brand}`),
       api(`/api/summary/by-supplier?brand=${brand}&limit=15`),
+      api(`/api/summary/by-location?brand=${brand}`),
     ]);
-    render(app, {kpi, mom, monthly, cats, sups});
+    render(app, {kpi, mom, monthly, cats, sups, locs});
   }catch(e){
     app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
   }
@@ -165,23 +167,30 @@ function render(app, d){
         <div class="chart-box"><canvas id="trendChart"></canvas></div>
       </div>
       <div class="panel">
-        <h2>สัดส่วนตามหมวด (Category)</h2>
+        <h2>สัดส่วนตามหมวด (Category) <span id="catDrillHint" style="font-weight:400;color:var(--muted);font-size:12px"></span></h2>
         <div class="chart-box" style="height:220px"><canvas id="catChart"></canvas></div>
         <div id="catLegend" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
 
-    <div class="grid" style="margin-top:16px">
+    <div class="grid two" style="margin-top:16px">
       <div class="panel">
         <h2>Top 15 Supplier (ยอดซื้อสูงสุด)</h2>
         <table><thead><tr>
           <th>Supplier</th><th class="num">ยอดซื้อ</th><th class="num">PO</th>
         </tr></thead><tbody id="supBody"></tbody></table>
       </div>
+      <div class="panel">
+        <h2>ยอดซื้อแยกตามคลัง/สาขา</h2>
+        <table><thead><tr>
+          <th>คลัง</th><th class="num">ยอดซื้อ</th><th class="num">PO</th>
+        </tr></thead><tbody id="locBody"></tbody></table>
+      </div>
     </div>`;
 
   drawTrend(d.monthly);
   drawCategory(d.cats);
+  fillLocations(d.locs);
   fillSuppliers(d.sups);
 }
 
@@ -213,12 +222,31 @@ const CAT_DESC = {
   "(none)":  "ไม่ระบุหมวด",
 };
 
+let catRows = [];        // เก็บ raw (category+item_group) ไว้ทำ drill-down
+let catDrill = null;     // category ที่กำลัง drill อยู่ (null = ระดับบน)
+
 function drawCategory(rows){
-  // รวมตาม category (ไม่ใช่ item_group ย่อย)
+  if(rows) catRows = rows;          // ครั้งแรกเก็บไว้; เรียกซ้ำตอน drill ไม่ส่ง rows
+  const drilling = catDrill !== null;
+  const hint = document.getElementById("catDrillHint");
+
+  // ระดับบน: รวมตาม category | ระดับ drill: เฉพาะ item_group ใน category นั้น
   const agg={};
-  rows.forEach(r=>{ agg[r.category]=(agg[r.category]||0)+(+r.purchase_amount); });
-  const labels=Object.keys(agg), data=labels.map(k=>agg[k]);
+  catRows.forEach(r=>{
+    if(drilling){
+      if(r.category===catDrill) agg[r.item_group]=(agg[r.item_group]||0)+(+r.purchase_amount);
+    }else{
+      agg[r.category]=(agg[r.category]||0)+(+r.purchase_amount);
+    }
+  });
+  const labels=Object.keys(agg).sort((a,b)=>agg[b]-agg[a]);
+  const data=labels.map(k=>agg[k]);
   const total = data.reduce((a,b)=>a+b,0) || 1;
+
+  if(hint) hint.textContent = drilling
+    ? `▸ ${catDrill} — คลิกเพื่อย้อนกลับ` : "คลิกที่วงเพื่อดูหมวดย่อย";
+
+  if(charts.cat) charts.cat.destroy();
   const ctx=document.getElementById("catChart");
   charts.cat=new Chart(ctx,{
     type:"doughnut",
@@ -227,34 +255,62 @@ function drawCategory(rows){
       borderColor:getComputedStyle(document.documentElement).getPropertyValue("--surface").trim(),
       borderWidth:2 }]},
     options:{ responsive:true, maintainAspectRatio:false,
+      onClick:(e,els)=>{
+        if(drilling){ catDrill=null; drawCategory(); return; }   // คลิกตอน drill = ย้อนกลับ
+        if(els.length){ catDrill=labels[els[0].index]; drawCategory(); }  // คลิก slice = drill เข้า
+      },
       plugins:{
-        legend:{position:"bottom",labels:{color:inkColor(),boxWidth:12,padding:12,
-          // legend โชว์ ชื่อหมวด + % (ไม่ใช่สีเปล่าๆ)
+        legend:{position:"bottom",labels:{color:inkColor(),boxWidth:12,padding:10,font:{size:11},
           generateLabels:(chart)=>{
             const ds=chart.data.datasets[0];
             return chart.data.labels.map((lb,i)=>({
               text:`${lb} ${(ds.data[i]/total*100).toFixed(1)}%`,
-              fillStyle:ds.backgroundColor[i], strokeStyle:ds.backgroundColor[i],
-              index:i,
+              fillStyle:ds.backgroundColor[i], strokeStyle:ds.backgroundColor[i], index:i,
             }));
           }}},
         tooltip:{ callbacks:{
-          // hover: ชื่อหมวด + คำอธิบายไทย + ยอดบาท + %
           title:c=>c[0].label,
           label:c=>" "+fmtB(c.parsed)+"  ("+(c.parsed/total*100).toFixed(1)+"%)",
-          afterLabel:c=>CAT_DESC[c.label]||"",
+          afterLabel:c=>drilling?"":(CAT_DESC[c.label]||""),
         }}}}
   });
-  // เพิ่มคำอธิบายหมวดใต้กราฟ (static legend อธิบายความหมาย)
+
+  // คำอธิบายใต้กราฟ (เฉพาะระดับบน — บอก Goods/Expense/Capex คืออะไร)
   const box=document.getElementById("catLegend");
   if(box){
-    box.innerHTML = labels.map((lb,i)=>`
-      <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
-        <span class="dot" style="background:${CAT[i%CAT.length]};margin-top:4px"></span>
-        <div><b>${lb}</b> — ${fmtB(agg[lb])} (${(agg[lb]/total*100).toFixed(1)}%)
-          <div style="color:var(--muted);font-size:12px">${CAT_DESC[lb]||""}</div></div>
-      </div>`).join("");
+    if(drilling){
+      box.innerHTML = labels.slice(0,8).map((lb,i)=>`
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+          <span class="dot" style="background:${CAT[i%CAT.length]}"></span>
+          <span style="flex:1">${lb}</span>
+          <b>${fmtB(agg[lb])}</b>
+          <span style="color:var(--muted);width:48px;text-align:right">${(agg[lb]/total*100).toFixed(1)}%</span>
+        </div>`).join("");
+    }else{
+      box.innerHTML = labels.map((lb,i)=>`
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+          <span class="dot" style="background:${CAT[i%CAT.length]};margin-top:4px"></span>
+          <div><b>${lb}</b> — ${fmtB(agg[lb])} (${(agg[lb]/total*100).toFixed(1)}%)
+            <div style="color:var(--muted);font-size:12px">${CAT_DESC[lb]||""}</div></div>
+        </div>`).join("");
+    }
   }
+}
+
+function fillLocations(rows){
+  const body=document.getElementById("locBody");
+  if(!body) return;
+  if(!rows || !rows.length){ body.innerHTML=`<tr><td colspan="3" style="color:var(--muted)">ไม่มีข้อมูลคลัง</td></tr>`; return; }
+  const max=Math.max(...rows.map(r=>+r.purchase_amount),1);
+  body.innerHTML = rows.slice(0,15).map(r=>`
+    <tr>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${r.invent_location}</span>
+      </td>
+      <td class="num">${fmtB(r.purchase_amount)}</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`).join("");
 }
 
 function fillSuppliers(rows){
