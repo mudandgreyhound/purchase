@@ -362,7 +362,7 @@ function fillLocations(rows){
     <tr>
       <td class="bar-cell">
         <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
-        <span style="position:relative">${r.invent_location}</span>
+        <span style="position:relative">${r.invent_location}${r.location_name?' — '+r.location_name:''}</span>
       </td>
       <td class="num">${fmtB(r.purchase_amount)}</td>
       <td class="num">${fmtN(r.po_count)}</td>
@@ -395,7 +395,7 @@ function fillCatDetail(rows){
       <td><span class="badge ${CAT_BADGE[r.category]||'ok'}">${r.category}</span></td>
       <td class="bar-cell">
         <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
-        <span style="position:relative">${r.item_group}</span>
+        <span style="position:relative">${r.item_group}${r.item_group_name?' — '+r.item_group_name:''}</span>
       </td>
       <td class="num">${fmtB(r.purchase_amount)}</td>
       <td class="num">${(+r.purchase_amount/total*100).toFixed(1)}%</td>
@@ -536,7 +536,7 @@ function fillPoList(rows){
       <td>${r.purch_id}</td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.vendor_name||r.vendor_acct||''}</td>
-      <td>${r.invent_location||'-'}</td>
+      <td title="${(r.location_name||'').replace(/"/g,'')}">${r.invent_location||'-'}</td>
       <td class="num">${r.delivery_date||'-'}<br>${badge}</td>
       <td class="num">${fmtN(r.qty_ordered)}</td>
       <td class="num"><b>${fmtN(r.remain_physical)}</b></td>
