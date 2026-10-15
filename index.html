@@ -278,7 +278,7 @@ async function loadSummary(brand){
     const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}${dp()}`),
       api(`/api/summary/mom?brand=${brand}`),
-      api(`/api/summary/monthly?brand=${brand}`),
+      api(`/api/summary/monthly?brand=${brand}${dp()}`),
       api(`/api/summary/by-category?brand=${brand}${dp()}`),
       api(`/api/summary/by-supplier?brand=${brand}&limit=15${dp()}`),
       api(`/api/summary/by-location?brand=${brand}${dp()}`),
