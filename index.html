@@ -163,15 +163,17 @@ async function loadSummary(brand){
   const app = document.getElementById("app");
   app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
   try{
-    const [kpi, mom, monthly, cats, sups, locs] = await Promise.all([
+    const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}`),
       api(`/api/summary/mom?brand=${brand}`),
       api(`/api/summary/monthly?brand=${brand}`),
       api(`/api/summary/by-category?brand=${brand}`),
       api(`/api/summary/by-supplier?brand=${brand}&limit=15`),
       api(`/api/summary/by-location?brand=${brand}`),
+      api(`/api/summary/category-detail?brand=${brand}`),
+      api(`/api/summary/supplier-sku?brand=${brand}&limit=15`),
     ]);
-    render(app, {kpi, mom, monthly, cats, sups, locs});
+    render(app, {kpi, mom, monthly, cats, sups, locs, catDetail, supSku});
   }catch(e){
     app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
   }
@@ -219,12 +221,33 @@ function render(app, d){
           <th>คลัง</th><th class="num">ยอดซื้อ</th><th class="num">PO</th>
         </tr></thead><tbody id="locBody"></tbody></table>
       </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>มูลค่าซื้อแยกตามหมวดวัตถุดิบ (รายละเอียดทุกหมวด)</h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>หมวด</th><th>กลุ่มวัตถุดิบ</th>
+        <th class="num">ยอดซื้อ</th><th class="num">%</th>
+        <th class="num">SKU</th><th class="num">PO</th>
+      </tr></thead><tbody id="catDetailBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>จำนวนชนิดวัตถุดิบ (SKU) แยกตาม Supplier</h2>
+      <table><thead><tr>
+        <th>Supplier</th><th class="num">จำนวน SKU</th>
+        <th class="num">PO</th><th class="num">ยอดซื้อ</th>
+      </tr></thead><tbody id="supSkuBody"></tbody></table>
     </div>`;
 
   drawTrend(d.monthly);
   drawCategory(d.cats);
   fillLocations(d.locs);
   fillSuppliers(d.sups);
+  fillCatDetail(d.catDetail);
+  fillSupplierSku(d.supSku);
 }
 
 const gridColor = () => getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
@@ -356,6 +379,45 @@ function fillSuppliers(rows){
       </td>
       <td class="num">${fmtB(r.purchase_amount)}</td>
       <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`).join("");
+}
+
+const CAT_BADGE = {"Goods":"ok","Expense":"soon","Capex":"over"};
+
+function fillCatDetail(rows){
+  const body=document.getElementById("catDetailBody");
+  if(!body) return;
+  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="6" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
+  const total=rows.reduce((a,r)=>a+(+r.purchase_amount||0),0)||1;
+  const max=Math.max(...rows.map(r=>+r.purchase_amount),1);
+  body.innerHTML=rows.map(r=>`
+    <tr>
+      <td><span class="badge ${CAT_BADGE[r.category]||'ok'}">${r.category}</span></td>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${r.item_group}</span>
+      </td>
+      <td class="num">${fmtB(r.purchase_amount)}</td>
+      <td class="num">${(+r.purchase_amount/total*100).toFixed(1)}%</td>
+      <td class="num">${fmtN(r.sku_count)}</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`).join("");
+}
+
+function fillSupplierSku(rows){
+  const body=document.getElementById("supSkuBody");
+  if(!body) return;
+  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="4" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
+  const max=Math.max(...rows.map(r=>+r.sku_count),1);
+  body.innerHTML=rows.map(r=>`
+    <tr>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.sku_count/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${r.vendor_name||r.vendor_acct}</span>
+      </td>
+      <td class="num"><b>${fmtN(r.sku_count)}</b> ชนิด</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+      <td class="num">${fmtB(r.purchase_amount)}</td>
     </tr>`).join("");
 }
 
