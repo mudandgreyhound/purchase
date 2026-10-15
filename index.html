@@ -39,6 +39,15 @@
   input{font:inherit;padding:7px 12px;border:1px solid var(--border);
     border-radius:8px;background:var(--surface);color:var(--ink)}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  /* date range */
+  .daterange{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+    padding:4px 8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}
+  .daterange input[type=date]{padding:5px 8px;font-size:13px}
+  .daterange .sep{color:var(--ink-2)}
+  .preset{padding:5px 10px;font-size:12px;font-weight:600;background:var(--surface);
+    color:var(--ink-2);border:1px solid var(--border)}
+  .preset.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .daterange .lbl{font-size:12px;color:var(--ink-2);font-weight:600}
   /* tabs */
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border)}
   .tab{padding:8px 16px;border:none;background:none;color:var(--ink-2);cursor:pointer;
@@ -87,6 +96,16 @@
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
+      <span class="daterange">
+        <span class="lbl">📅</span>
+        <input type="date" id="dFrom" title="วันที่เริ่ม">
+        <span class="sep">–</span>
+        <input type="date" id="dTo" title="วันที่สิ้นสุด">
+        <button class="preset" data-preset="month">เดือนนี้</button>
+        <button class="preset" data-preset="3m">3 เดือน</button>
+        <button class="preset" data-preset="year">ปีนี้</button>
+        <button class="preset active" data-preset="all">ทั้งหมด</button>
+      </span>
       <button id="themeBtn" title="สลับโหมดสี">🌓</button>
     </div>
   </header>
@@ -131,6 +150,62 @@ document.querySelectorAll(".tab").forEach(btn=>{
   };
 });
 
+// ===== date range (global) =====
+let dateRange = {from:null, to:null};   // null = ทั้งหมด (ไม่กรอง)
+
+function isoLocal(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function nextDay(s){            // backend ใช้ date_to < %s → บวก 1 วันให้ครอบคลุมวันสุดท้าย
+  const [y,m,d]=s.split("-").map(Number);
+  return isoLocal(new Date(y, m-1, d+1));
+}
+// ต่อท้าย query string ให้ endpoint ที่กรองวันที่ได้
+function dp(){
+  let s="";
+  if(dateRange.from) s += "&date_from="+dateRange.from;
+  if(dateRange.to)   s += "&date_to="+nextDay(dateRange.to);
+  return s;
+}
+function syncDateInputs(){
+  document.getElementById("dFrom").value = dateRange.from || "";
+  document.getElementById("dTo").value   = dateRange.to   || "";
+}
+function markPreset(p){
+  document.querySelectorAll(".preset").forEach(b=>
+    b.classList.toggle("active", b.dataset.preset===p));
+}
+function setPreset(p){
+  const now = new Date();
+  if(p==="month"){
+    dateRange.from = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+    dateRange.to   = isoLocal(now);
+  } else if(p==="3m"){
+    const f = new Date(now); f.setMonth(f.getMonth()-3);
+    dateRange.from = isoLocal(f); dateRange.to = isoLocal(now);
+  } else if(p==="year"){
+    dateRange.from = isoLocal(new Date(now.getFullYear(),0,1));
+    dateRange.to   = isoLocal(now);
+  } else {  // all
+    dateRange.from = null; dateRange.to = null;
+  }
+  syncDateInputs(); markPreset(p);
+  if(lastBrand) load(lastBrand);
+}
+document.querySelectorAll(".preset").forEach(b=>{
+  b.onclick = () => setPreset(b.dataset.preset);
+});
+// พิมพ์วันเองในช่อง → ล้าง preset active แล้วโหลดใหม่
+["dFrom","dTo"].forEach(id=>{
+  document.getElementById(id).onchange = () => {
+    dateRange.from = document.getElementById("dFrom").value || null;
+    dateRange.to   = document.getElementById("dTo").value   || null;
+    markPreset(dateRange.from||dateRange.to ? "" : "all");
+    if(lastBrand) load(lastBrand);
+  };
+});
+
 // ===== fetch helper =====
 async function api(path){
   const r = await fetch(API + path);
@@ -168,14 +243,14 @@ async function loadSummary(brand){
   app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
   try{
     const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku] = await Promise.all([
-      api(`/api/summary/kpi?brand=${brand}`),
+      api(`/api/summary/kpi?brand=${brand}${dp()}`),
       api(`/api/summary/mom?brand=${brand}`),
       api(`/api/summary/monthly?brand=${brand}`),
-      api(`/api/summary/by-category?brand=${brand}`),
-      api(`/api/summary/by-supplier?brand=${brand}&limit=15`),
-      api(`/api/summary/by-location?brand=${brand}`),
-      api(`/api/summary/category-detail?brand=${brand}`),
-      api(`/api/summary/supplier-sku?brand=${brand}&limit=15`),
+      api(`/api/summary/by-category?brand=${brand}${dp()}`),
+      api(`/api/summary/by-supplier?brand=${brand}&limit=15${dp()}`),
+      api(`/api/summary/by-location?brand=${brand}${dp()}`),
+      api(`/api/summary/category-detail?brand=${brand}${dp()}`),
+      api(`/api/summary/supplier-sku?brand=${brand}&limit=15${dp()}`),
     ]);
     render(app, {kpi, mom, monthly, cats, sups, locs, catDetail, supSku});
   }catch(e){
@@ -562,8 +637,8 @@ async function loadPrice(brand){
   app.innerHTML = `<div class="loading">กำลังโหลดราคา ${brand}…</div>`;
   try{
     const [changes, summary] = await Promise.all([
-      api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50`),
-      api(`/api/price/summary?brand=${brand}&limit=100`),
+      api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50${dp()}`),
+      api(`/api/price/summary?brand=${brand}&limit=100${dp()}`),
     ]);
     renderPrice(app, {brand, changes, summary});
   }catch(e){
@@ -623,7 +698,7 @@ function renderPrice(app, d){
   const si=document.getElementById("priceSearch");
   si.onkeydown=async(e)=>{
     if(e.key==="Enter"){
-      const rows=await api(`/api/price/summary?brand=${d.brand}&limit=100&search=${encodeURIComponent(si.value)}`);
+      const rows=await api(`/api/price/summary?brand=${d.brand}&limit=100&search=${encodeURIComponent(si.value)}${dp()}`);
       fillPriceSummary(rows, d.brand);
     }
   };
