@@ -92,7 +92,7 @@
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
+      <div class="sub">Mud & Hound Public Company Limited</div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -114,6 +114,7 @@
     <button class="tab active" data-tab="summary">สรุปยอดจัดซื้อ</button>
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
     <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
+    <button class="tab" data-tab="supplier">ประเมินผู้ขาย</button>
   </div>
 
   <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
@@ -232,6 +233,7 @@ async function initBrands(){
 async function load(brand){
   if(currentTab==="outstanding") return loadOutstanding(brand);
   if(currentTab==="price") return loadPrice(brand);
+  if(currentTab==="supplier") return loadSupplier(brand);
   return loadSummary(brand);
 }
 
@@ -780,6 +782,156 @@ async function showSupplierCompare(brand, itemId, itemName){
   }catch(e){
     body.innerHTML=`<tr><td colspan="6" class="err">${e.message}</td></tr>`;
   }
+}
+
+// =============================================================================
+//  SUPPLIER PERFORMANCE (มุมที่ 4) — ประเมินผู้ขาย
+// =============================================================================
+let supSort = "spend";   // spend / ontime / lead / return
+
+async function loadSupplier(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังประเมินผู้ขาย ${brand}…</div>`;
+  try{
+    const [kpi, perf] = await Promise.all([
+      api(`/api/supplier/kpi?brand=${brand}${dp()}`),
+      api(`/api/supplier/performance?brand=${brand}&limit=50&sort=${supSort}${dp()}`),
+    ]);
+    renderSupplier(app, {brand, kpi, perf});
+  }catch(e){
+    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+  }
+}
+
+function renderSupplier(app, d){
+  const k = d.kpi;
+  const otTxt = k.ontime_rate==null ? "—" : k.ontime_rate.toFixed(1)+"%";
+  const ldTxt = k.avg_lead_days==null ? "—" : fmtN(k.avg_lead_days)+" วัน";
+  app.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="label">ผู้ขายที่มีการรับของ</div>
+        <div class="value">${fmtN(k.supplier_count)} <span class="unit">ราย</span></div></div>
+      <div class="kpi"><div class="label">ส่งตรงเวลา (on-time)</div>
+        <div class="value" style="color:${k.ontime_rate==null?'var(--ink)':(k.ontime_rate>=90?'var(--c3)':k.ontime_rate>=75?'var(--c2)':'var(--c4)')}">${otTxt}</div>
+        <div class="unit">${fmtN(k.ontime_lines)}/${fmtN(k.due_lines)} บรรทัดมีกำหนด</div></div>
+      <div class="kpi"><div class="label">Lead time เฉลี่ย</div>
+        <div class="value">${ldTxt}</div>
+        <div class="unit">วันสั่ง → รับจริง</div></div>
+      <div class="kpi"><div class="label">มูลค่าคืน/ตีกลับ</div>
+        <div class="value" style="color:${(+k.return_value>0)?'var(--c4)':'var(--ink)'}">${fmtB(k.return_value)}</div>
+        <div class="unit">จากรับเข้า ${fmtB(k.recv_value)}</div></div>
+    </div>
+
+    <div class="grid two">
+      <div class="panel">
+        <h2>On-time delivery — ผู้ขายรายใหญ่ (% ส่งตรงเวลา)</h2>
+        <div class="chart-box" style="height:300px"><canvas id="supOtChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Lead time เฉลี่ย (วัน) — ผู้ขายรายใหญ่</h2>
+        <div class="chart-box" style="height:300px"><canvas id="supLdChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>ตารางประเมินผู้ขาย
+        <span style="font-weight:400;font-size:12px;margin-left:8px">เรียงตาม:
+          <button class="tab ${supSort==='spend'?'active':''}" data-sort="spend" style="padding:3px 10px;font-size:12px">มูลค่าซื้อ</button>
+          <button class="tab ${supSort==='ontime'?'active':''}" data-sort="ontime" style="padding:3px 10px;font-size:12px">ตรงเวลาแย่สุด</button>
+          <button class="tab ${supSort==='lead'?'active':''}" data-sort="lead" style="padding:3px 10px;font-size:12px">Lead time นานสุด</button>
+          <button class="tab ${supSort==='return'?'active':''}" data-sort="return" style="padding:3px 10px;font-size:12px">คืนมากสุด</button>
+        </span>
+      </h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>ผู้ขาย</th>
+        <th class="num">มูลค่าซื้อ</th><th class="num">ส่วนแบ่ง</th>
+        <th class="num">On-time</th><th class="num">Lead time</th>
+        <th class="num">บรรทัดรับ</th><th class="num">คืน/ตีกลับ</th>
+      </tr></thead><tbody id="supBody"></tbody></table>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">
+        * On-time นับเฉพาะบรรทัดที่มีวันกำหนดส่ง (ยืนยัน/กำหนด) เทียบกับวันรับจริงล่าสุด ·
+        Lead time = วันสั่งซื้อ → วันรับจริง · คืน/ตีกลับ = รายการรับที่จำนวนติดลบ
+      </div>
+    </div>`;
+
+  // ปุ่มเรียงตาราง
+  app.querySelectorAll("[data-sort]").forEach(b=>{
+    b.onclick = () => { supSort = b.dataset.sort; loadSupplier(d.brand); };
+  });
+
+  drawSupplierCharts(d.perf);
+  fillSupplierTable(d.perf);
+}
+
+function drawSupplierCharts(rows){
+  // เลือกรายใหญ่สุด 12 รายตามมูลค่าซื้อ สำหรับกราฟ
+  const top = [...rows].sort((a,b)=>(+b.recv_value)-(+a.recv_value)).slice(0,12);
+  const names = top.map(r=> (r.vendor_name||r.vendor_acct).length>22
+    ? (r.vendor_name||r.vendor_acct).slice(0,22)+"…" : (r.vendor_name||r.vendor_acct));
+  const c1 = getComputedStyle(document.documentElement).getPropertyValue("--c1").trim();
+  const c3 = getComputedStyle(document.documentElement).getPropertyValue("--c3").trim();
+  const c4 = getComputedStyle(document.documentElement).getPropertyValue("--c4").trim();
+  const c2 = getComputedStyle(document.documentElement).getPropertyValue("--c2").trim();
+
+  // on-time %
+  const ot = top.map(r=> r.ontime_rate==null ? null : +(+r.ontime_rate).toFixed(1));
+  const otColors = ot.map(v=> v==null?'#ccc' : v>=90?c3 : v>=75?c2 : c4);
+  if(charts.supOt) charts.supOt.destroy();
+  charts.supOt = new Chart(document.getElementById("supOtChart"),{
+    type:"bar",
+    data:{labels:names,datasets:[{data:ot,backgroundColor:otColors,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>c.parsed.x==null?" ไม่มีกำหนดส่ง":" ส่งตรงเวลา "+c.parsed.x+"%"}}},
+      scales:{x:{min:0,max:100,grid:{color:gridColor()},ticks:{color:inkColor(),callback:v=>v+"%"}},
+        y:{grid:{display:false},ticks:{color:inkColor(),font:{size:11}}}}}
+  });
+
+  // lead time (วัน)
+  const ld = top.map(r=> r.avg_lead==null ? null : Math.round(+r.avg_lead));
+  if(charts.supLd) charts.supLd.destroy();
+  charts.supLd = new Chart(document.getElementById("supLdChart"),{
+    type:"bar",
+    data:{labels:names,datasets:[{data:ld,backgroundColor:c1,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>c.parsed.x==null?" ไม่มีข้อมูลรับ":" เฉลี่ย "+c.parsed.x+" วัน"}}},
+      scales:{x:{grid:{color:gridColor()},ticks:{color:inkColor(),callback:v=>v+" วัน"}},
+        y:{grid:{display:false},ticks:{color:inkColor(),font:{size:11}}}}}
+  });
+}
+
+function fillSupplierTable(rows){
+  const body = document.getElementById("supBody");
+  if(!rows||!rows.length){body.innerHTML=`<tr><td colspan="7" style="color:var(--muted)">ไม่มีข้อมูลในช่วงที่เลือก</td></tr>`;return;}
+  const max = Math.max(...rows.map(r=>+r.recv_value),1);
+  body.innerHTML = rows.map(r=>{
+    const ot = r.ontime_rate;
+    const otCell = ot==null ? `<span style="color:var(--muted)">—</span>`
+      : `<span style="color:${ot>=90?'var(--c3)':ot>=75?'var(--c2)':'var(--c4)'};font-weight:600">${(+ot).toFixed(0)}%</span>`;
+    const ld = r.avg_lead==null ? `<span style="color:var(--muted)">—</span>` : `${Math.round(+r.avg_lead)} วัน`;
+    const retPct = r.return_rate==null ? 0 : +r.return_rate;
+    const retCell = (+r.return_value>0)
+      ? `${fmtB(r.return_value)} <span style="color:var(--c4);font-size:11px">(${retPct.toFixed(1)}%)</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+    return `<tr>
+      <td class="bar-cell" style="max-width:240px">
+        <span class="fill" style="width:${(+r.recv_value/max*100).toFixed(0)}%"></span>
+        <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:230px"
+              title="${(r.vendor_name||'').replace(/"/g,'')} (${r.vendor_acct})">${r.vendor_name||r.vendor_acct}</span>
+      </td>
+      <td class="num">${fmtB(r.recv_value)}</td>
+      <td class="num">${(+r.share_pct).toFixed(1)}%</td>
+      <td class="num">${otCell}</td>
+      <td class="num">${ld}</td>
+      <td class="num">${fmtN(r.lines_recv||0)}</td>
+      <td class="num">${retCell}</td>
+    </tr>`;
+  }).join("");
 }
 
 initBrands();
