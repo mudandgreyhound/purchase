@@ -37,6 +37,16 @@
   select,button{font:inherit;padding:7px 12px;border:1px solid var(--border);
     border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  /* tabs */
+  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border)}
+  .tab{padding:8px 16px;border:none;background:none;color:var(--ink-2);cursor:pointer;
+    font-size:14px;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-2px}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  /* overdue badge */
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge.over{background:var(--c4);color:#fff}
+  .badge.soon{background:var(--c2);color:#fff}
+  .badge.ok{background:var(--surface-2);color:var(--ink-2)}
   /* KPI cards */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
     gap:12px;margin-bottom:16px}
@@ -70,7 +80,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>Purchase Summary — สรุปยอดจัดซื้อ</h1>
+      <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
       <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
     </div>
     <div class="toolbar">
@@ -78,6 +88,11 @@
       <button id="themeBtn" title="สลับโหมดสี">🌓</button>
     </div>
   </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="summary">สรุปยอดจัดซื้อ</button>
+    <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
+  </div>
 
   <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
 </div>
@@ -91,15 +106,27 @@ const fmtB = n => "฿" + Number(n||0).toLocaleString("th-TH",{maximumFractionDi
 const fmtN = n => Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
 let charts = {};
 
+let currentTab = "summary";
+
 // ===== theme toggle =====
 document.getElementById("themeBtn").onclick = () => {
   const cur = document.documentElement.getAttribute("data-theme");
   const next = cur === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
   try{localStorage.setItem("pa-theme", next)}catch(e){}
-  if (lastBrand) load(lastBrand);  // re-render charts ให้สีตรง theme
+  if (lastBrand) load(lastBrand);  // re-render ให้สีตรง theme
 };
 try{const t=localStorage.getItem("pa-theme"); if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}
+
+// ===== tab switching =====
+document.querySelectorAll(".tab").forEach(btn=>{
+  btn.onclick = () => {
+    document.querySelectorAll(".tab").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    currentTab = btn.dataset.tab;
+    if(lastBrand) load(lastBrand);
+  };
+});
 
 // ===== fetch helper =====
 async function api(path){
@@ -123,9 +150,15 @@ async function initBrands(){
   }
 }
 
+// dispatch ตามแท็บที่เลือก
 async function load(brand){
+  if(currentTab==="outstanding") return loadOutstanding(brand);
+  return loadSummary(brand);
+}
+
+async function loadSummary(brand){
   lastBrand = brand;
-  catDrill = null;   // reset drill-down เมื่อเปลี่ยน brand
+  catDrill = null;
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
   app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
@@ -324,6 +357,131 @@ function fillSuppliers(rows){
       <td class="num">${fmtB(r.purchase_amount)}</td>
       <td class="num">${fmtN(r.po_count)}</td>
     </tr>`).join("");
+}
+
+// =============================================================================
+//  PO OUTSTANDING (มุมที่ 2)
+// =============================================================================
+async function loadOutstanding(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังโหลด PO ค้างรับ ${brand}…</div>`;
+  try{
+    const [kpi, aging, sups, locs, list] = await Promise.all([
+      api(`/api/po/kpi?brand=${brand}`),
+      api(`/api/po/aging?brand=${brand}`),
+      api(`/api/po/by-supplier?brand=${brand}&limit=15`),
+      api(`/api/po/by-location?brand=${brand}`),
+      api(`/api/po/list?brand=${brand}&limit=200`),
+    ]);
+    renderOutstanding(app, {kpi, aging, sups, locs, list});
+  }catch(e){
+    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+  }
+}
+
+const AGING_ORDER = ["เกิน 30 วัน","เกิน 8-30 วัน","เกิน 1-7 วัน","ยังไม่ถึงกำหนด","ไม่ระบุกำหนด"];
+const AGING_COLOR = {"เกิน 30 วัน":"--c4","เกิน 8-30 วัน":"--c2","เกิน 1-7 วัน":"--c5",
+  "ยังไม่ถึงกำหนด":"--c1","ไม่ระบุกำหนด":"--muted"};
+
+function renderOutstanding(app, d){
+  const k=d.kpi;
+  app.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="label">PO ค้างรับ</div>
+        <div class="value">${fmtN(k.po_count)} <span class="unit">ใบ</span></div></div>
+      <div class="kpi"><div class="label">บรรทัดค้าง</div>
+        <div class="value">${fmtN(k.line_count)} <span class="unit">รายการ</span></div></div>
+      <div class="kpi"><div class="label">มูลค่าค้างรับ (ประมาณ)</div>
+        <div class="value">${fmtB(k.outstanding_value)}</div></div>
+      <div class="kpi"><div class="label">เกินกำหนดส่ง</div>
+        <div class="value" style="color:var(--c4)">${fmtN(k.overdue_lines)} <span class="unit">รายการ</span></div></div>
+    </div>
+
+    <div class="grid two">
+      <div class="panel">
+        <h2>Aging — PO ค้างตามช่วงเกินกำหนด</h2>
+        <div class="chart-box" style="height:240px"><canvas id="agingChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Supplier ค้างส่งมากสุด</h2>
+        <table><thead><tr><th>Supplier</th><th class="num">มูลค่าค้าง</th><th class="num">PO</th></tr></thead>
+          <tbody id="poSupBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>รายการ PO ค้างรับ (เรียงตามเกินกำหนดมากสุด)</h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>PO</th><th>สินค้า</th><th>Supplier</th><th>คลัง</th>
+        <th class="num">กำหนดส่ง</th><th class="num">สั่ง</th><th class="num">ค้าง</th>
+        <th class="num">มูลค่าค้าง</th><th class="num">สถานะ</th>
+      </tr></thead><tbody id="poListBody"></tbody></table>
+      </div>
+    </div>`;
+
+  drawAging(d.aging);
+  fillPoSuppliers(d.sups);
+  fillPoList(d.list);
+}
+
+function drawAging(rows){
+  const m={}; rows.forEach(r=>m[r.bucket]=r);
+  const labels=AGING_ORDER.filter(b=>m[b]);
+  const data=labels.map(b=>+m[b].outstanding_value||0);
+  const colors=labels.map(b=>getComputedStyle(document.documentElement).getPropertyValue(AGING_COLOR[b]||"--c1").trim());
+  if(charts.aging) charts.aging.destroy();
+  charts.aging=new Chart(document.getElementById("agingChart"),{
+    type:"bar",
+    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:4,
+      borderColor:getComputedStyle(document.documentElement).getPropertyValue("--surface").trim(),borderWidth:1}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>" "+fmtB(c.parsed.x)+"  ("+fmtN(m[c.label].line_count)+" รายการ)"}}},
+      scales:{x:{grid:{color:gridColor()},ticks:{color:inkColor(),callback:v=>"฿"+(v/1e6).toFixed(1)+"M"}},
+        y:{grid:{display:false},ticks:{color:inkColor()}}}}
+  });
+}
+
+function fillPoSuppliers(rows){
+  const body=document.getElementById("poSupBody");
+  if(!rows||!rows.length){body.innerHTML=`<tr><td colspan="3" style="color:var(--muted)">ไม่มี PO ค้าง</td></tr>`;return;}
+  const max=Math.max(...rows.map(r=>+r.outstanding_value),1);
+  body.innerHTML=rows.map(r=>`
+    <tr>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.outstanding_value/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${r.vendor_name||r.vendor_acct}</span>
+      </td>
+      <td class="num">${fmtB(r.outstanding_value)}</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`).join("");
+}
+
+function fillPoList(rows){
+  const body=document.getElementById("poListBody");
+  if(!rows||!rows.length){body.innerHTML=`<tr><td colspan="9" style="color:var(--muted)">ไม่มี PO ค้างรับ 🎉</td></tr>`;return;}
+  const ST={1:"Open",2:"รับบางส่วน"};
+  body.innerHTML=rows.map(r=>{
+    const od=r.days_overdue;
+    let badge;
+    if(od>30) badge=`<span class="badge over">เกิน ${od} วัน</span>`;
+    else if(od>0) badge=`<span class="badge soon">เกิน ${od} วัน</span>`;
+    else badge=`<span class="badge ok">${od===0?'ครบกำหนดวันนี้':'อีก '+(-od)+' วัน'}</span>`;
+    return `<tr>
+      <td>${r.purch_id}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.vendor_name||r.vendor_acct||''}</td>
+      <td>${r.invent_location||'-'}</td>
+      <td class="num">${r.delivery_date||'-'}<br>${badge}</td>
+      <td class="num">${fmtN(r.qty_ordered)}</td>
+      <td class="num"><b>${fmtN(r.remain_physical)}</b></td>
+      <td class="num">${fmtB(r.outstanding_value)}</td>
+      <td class="num">${ST[r.purch_status]||r.purch_status}</td>
+    </tr>`;
+  }).join("");
 }
 
 initBrands();
