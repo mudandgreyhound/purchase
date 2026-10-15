@@ -166,7 +166,8 @@ function render(app, d){
       </div>
       <div class="panel">
         <h2>สัดส่วนตามหมวด (Category)</h2>
-        <div class="chart-box"><canvas id="catChart"></canvas></div>
+        <div class="chart-box" style="height:220px"><canvas id="catChart"></canvas></div>
+        <div id="catLegend" style="margin-top:12px;font-size:13px"></div>
       </div>
     </div>
 
@@ -204,11 +205,20 @@ function drawTrend(rows){
   });
 }
 
+// คำอธิบายแต่ละหมวด (ภาษาไทย) — แยกจาก prefix ของรหัสสินค้าใน AX
+const CAT_DESC = {
+  "Goods":   "วัตถุดิบ/สินค้าที่ซื้อมาใช้ในธุรกิจ",
+  "Expense": "ค่าใช้จ่าย (ไม่ใช่ของขาย)",
+  "Capex":   "สินทรัพย์ถาวร/ของลงทุน",
+  "(none)":  "ไม่ระบุหมวด",
+};
+
 function drawCategory(rows){
   // รวมตาม category (ไม่ใช่ item_group ย่อย)
   const agg={};
   rows.forEach(r=>{ agg[r.category]=(agg[r.category]||0)+(+r.purchase_amount); });
   const labels=Object.keys(agg), data=labels.map(k=>agg[k]);
+  const total = data.reduce((a,b)=>a+b,0) || 1;
   const ctx=document.getElementById("catChart");
   charts.cat=new Chart(ctx,{
     type:"doughnut",
@@ -217,9 +227,34 @@ function drawCategory(rows){
       borderColor:getComputedStyle(document.documentElement).getPropertyValue("--surface").trim(),
       borderWidth:2 }]},
     options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:"bottom",labels:{color:inkColor(),boxWidth:12,padding:12}},
-        tooltip:{ callbacks:{ label:c=>" "+c.label+": "+fmtB(c.parsed) }}}}
+      plugins:{
+        legend:{position:"bottom",labels:{color:inkColor(),boxWidth:12,padding:12,
+          // legend โชว์ ชื่อหมวด + % (ไม่ใช่สีเปล่าๆ)
+          generateLabels:(chart)=>{
+            const ds=chart.data.datasets[0];
+            return chart.data.labels.map((lb,i)=>({
+              text:`${lb} ${(ds.data[i]/total*100).toFixed(1)}%`,
+              fillStyle:ds.backgroundColor[i], strokeStyle:ds.backgroundColor[i],
+              index:i,
+            }));
+          }}},
+        tooltip:{ callbacks:{
+          // hover: ชื่อหมวด + คำอธิบายไทย + ยอดบาท + %
+          title:c=>c[0].label,
+          label:c=>" "+fmtB(c.parsed)+"  ("+(c.parsed/total*100).toFixed(1)+"%)",
+          afterLabel:c=>CAT_DESC[c.label]||"",
+        }}}}
   });
+  // เพิ่มคำอธิบายหมวดใต้กราฟ (static legend อธิบายความหมาย)
+  const box=document.getElementById("catLegend");
+  if(box){
+    box.innerHTML = labels.map((lb,i)=>`
+      <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+        <span class="dot" style="background:${CAT[i%CAT.length]};margin-top:4px"></span>
+        <div><b>${lb}</b> — ${fmtB(agg[lb])} (${(agg[lb]/total*100).toFixed(1)}%)
+          <div style="color:var(--muted);font-size:12px">${CAT_DESC[lb]||""}</div></div>
+      </div>`).join("");
+  }
 }
 
 function fillSuppliers(rows){
