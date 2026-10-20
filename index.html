@@ -810,7 +810,7 @@ function fillPoList(rows){
     // แถวหลัก (ราย PO)
     html+=`<tr class="po-parent" data-po="${po}" style="cursor:pointer">
       <td><span class="po-tog">${multi?'▸':'•'}</span> ${po}${multi?` <span style="color:var(--muted);font-size:11px">(${lines.length})</span>`:''}</td>
-      <td style="color:var(--ink-2)">${multi?lines.length+' รายการ':`${g0.item_id} ${g0.item_name||''}`}</td>
+      <td style="color:var(--ink-2)">${multi?lines.length+' รายการ':`${g0.item_id} ${(g0.line_text||g0.item_name||'')}`}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g0.vendor_name||g0.vendor_acct||''}</td>
       <td title="${(g0.location_name||'').replace(/"/g,'')}">${g0.invent_location||'-'}</td>
       <td class="num">${earliest}<br>${odBadge(worstOd)}</td>
@@ -824,7 +824,7 @@ function fillPoList(rows){
       lines.forEach(l=>{
         html+=`<tr class="po-child" data-parent="${po}" hidden style="background:var(--surface-2)">
           <td></td>
-          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:18px" title="${(l.item_name||'').replace(/"/g,'')}">${l.item_id} ${l.item_name||''}</td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:18px" title="${((l.line_text||l.item_name)||'').replace(/"/g,'')}">${l.item_id} ${(l.line_text||l.item_name||'')}</td>
           <td></td>
           <td>${l.invent_location||''}</td>
           <td class="num">${l.delivery_date||'-'}<br>${odBadge(l.days_overdue)}</td>
@@ -951,8 +951,13 @@ function fillPriceChanges(rows){
   body.innerHTML=rows.map(r=>{
     const pct=+r.pct_change||0, up=pct>0;
     const badge=`<span class="badge ${up?'over':'ok'}" style="${up?'':'background:var(--c5);color:#fff'}">${up?'▲':'▼'} ${Math.abs(pct).toFixed(1)}%</span>`;
+    const lt=(r.line_text||'').trim();
+    const showLt = lt && lt!==(r.item_name||'').trim();
     return `<tr>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
+      <td style="max-width:260px">
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</div>
+        ${showLt?`<div style="font-size:11px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${lt.replace(/"/g,'')}">↳ ${lt}</div>`:''}
+      </td>
       <td>${r.item_group||'-'}</td>
       <td class="num">฿${fmtP(r.prev_price)}</td>
       <td class="num"><b>฿${fmtP(r.latest_price)}</b></td>
