@@ -810,7 +810,7 @@ function fillPoList(rows){
     // แถวหลัก (ราย PO)
     html+=`<tr class="po-parent" data-po="${po}" style="cursor:pointer">
       <td><span class="po-tog">${multi?'▸':'•'}</span> ${po}${multi?` <span style="color:var(--muted);font-size:11px">(${lines.length})</span>`:''}</td>
-      <td style="color:var(--ink-2)">${multi?lines.length+' รายการ':`${g0.item_id} ${(g0.line_text||g0.item_name||'')}`}</td>
+      <td style="color:var(--ink-2);max-width:280px">${multi?lines.length+' รายการ':`<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${((g0.line_text||g0.item_name)||'').replace(/"/g,'&quot;')}">${g0.item_id} ${(g0.line_text||g0.item_name||'')}</div>`}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g0.vendor_name||g0.vendor_acct||''}</td>
       <td title="${(g0.location_name||'').replace(/"/g,'')}">${g0.invent_location||'-'}</td>
       <td class="num">${earliest}<br>${odBadge(worstOd)}</td>
