@@ -102,14 +102,61 @@
   .modal-x{border:none;background:var(--surface-2);border-radius:8px;padding:6px 11px;
     font-size:16px;line-height:1;cursor:pointer;color:var(--ink)}
   .modal-body{padding:16px 20px;max-height:62vh;overflow-y:auto}
+  /* login gate */
+  .gate{position:fixed;inset:0;z-index:100;background:var(--bg);
+    display:none;align-items:center;justify-content:center;padding:20px}
+  .gate.show{display:flex}
+  .gate-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    padding:30px;width:100%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .gate-card h1{font-size:20px;margin:0 0 4px}
+  .gate-card .sub{margin-bottom:20px}
+  .gate-card label{display:block;font-size:13px;color:var(--ink-2);margin:12px 0 4px;font-weight:600}
+  .gate-card input{width:100%;box-sizing:border-box}
+  .gate-card button.primary,.btn-primary{width:100%;margin-top:18px;background:var(--accent);
+    color:#fff;border:none;font-weight:600;padding:10px}
+  .btn-primary{width:auto;margin:0}
+  .gate-err{color:var(--c4);font-size:13px;margin-top:12px;min-height:16px}
+  /* user chip */
+  #userBox{display:flex;gap:6px;align-items:center}
+  .uchip{font-size:13px;color:var(--ink-2);padding:6px 10px;background:var(--surface-2);
+    border-radius:8px;display:flex;align-items:center;gap:6px}
+  .uchip .role{font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;
+    background:var(--accent);color:#fff}
+  .iconbtn{padding:6px 10px;font-size:13px}
+  /* admin users table */
+  .umodal input,.umodal select{padding:6px 9px;font-size:13px}
+  .brandchks{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+  .brandchks label{display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer}
+  .addrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;
+    margin-bottom:14px;padding:14px;background:var(--surface-2);border-radius:10px}
+  .addrow .full{grid-column:1/-1}
+  .mini{padding:4px 9px;font-size:12px}
+  .mini.danger{color:var(--c4);border-color:var(--c4)}
 </style>
 </head>
 <body>
+
+<!-- ===== login gate ===== -->
+<div class="gate" id="loginGate">
+  <div class="gate-card">
+    <h1>Purchase Dashboard</h1>
+    <div class="sub">Greyhound Group · เข้าสู่ระบบ</div>
+    <form id="loginForm">
+      <label>ชื่อผู้ใช้</label>
+      <input type="text" id="loginUser" autocomplete="username" autofocus>
+      <label>รหัสผ่าน</label>
+      <input type="password" id="loginPass" autocomplete="current-password">
+      <button type="submit" class="primary" id="loginBtn">เข้าสู่ระบบ</button>
+      <div class="gate-err" id="loginErr"></div>
+    </form>
+  </div>
+</div>
+
 <div class="wrap">
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Mud & Hound Public Company Limited</div>
+      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -123,6 +170,7 @@
         <button class="preset" data-preset="year">ปีนี้</button>
         <button class="preset active" data-preset="all">ทั้งหมด</button>
       </span>
+      <span id="userBox" style="display:none"></span>
       <button id="themeBtn" title="สลับโหมดสี">🌓</button>
     </div>
   </header>
@@ -148,6 +196,37 @@
       <button class="modal-x" id="modalX" title="ปิด">✕</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- modal: เปลี่ยนรหัสผ่าน -->
+<div class="modal-bg" id="pwBg">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head">
+      <div><h3 id="pwTitle">เปลี่ยนรหัสผ่าน</h3>
+        <div class="msub" id="pwSub"></div></div>
+      <button class="modal-x" id="pwX" title="ปิด">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:13px;color:var(--ink-2);font-weight:600">รหัสผ่านเดิม</label>
+      <input type="password" id="pwOld" style="width:100%;box-sizing:border-box;margin:4px 0 12px">
+      <label style="font-size:13px;color:var(--ink-2);font-weight:600">รหัสผ่านใหม่ (≥6 ตัว)</label>
+      <input type="password" id="pwNew" style="width:100%;box-sizing:border-box;margin:4px 0 12px">
+      <button class="btn-primary" id="pwSave">บันทึก</button>
+      <div class="gate-err" id="pwErr"></div>
+    </div>
+  </div>
+</div>
+
+<!-- modal: จัดการผู้ใช้ (admin) -->
+<div class="modal-bg umodal" id="usersBg">
+  <div class="modal">
+    <div class="modal-head">
+      <div><h3>จัดการผู้ใช้</h3>
+        <div class="msub">กำหนดสิทธิ์การเข้าถึงตามแบรนด์ · admin เห็นทุกแบรนด์</div></div>
+      <button class="modal-x" id="usersX" title="ปิด">✕</button>
+    </div>
+    <div class="modal-body" id="usersBody"></div>
   </div>
 </div>
 
@@ -238,11 +317,27 @@ document.querySelectorAll(".preset").forEach(b=>{
   };
 });
 
-// ===== fetch helper =====
-async function api(path){
-  const r = await fetch(API + path);
-  if(!r.ok) throw new Error(path+" → "+r.status);
+// ===== auth state =====
+let authToken=null, authUser=null;
+try{ authToken=localStorage.getItem("pa-token"); authUser=JSON.parse(localStorage.getItem("pa-user")||"null"); }catch(e){}
+
+// ===== fetch helper (แนบ token + จัดการ error) =====
+async function api(path, opts){
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers||{});
+  if(authToken) headers["Authorization"] = "Bearer "+authToken;
+  const r = await fetch(API + path, Object.assign({}, opts, {headers}));
+  if(r.status===401){ doLogout("หมดเวลาเข้าสู่ระบบ — กรุณาเข้าสู่ระบบใหม่"); throw new Error("unauthorized"); }
+  if(!r.ok){
+    let msg = path+" → "+r.status;
+    try{ const j=await r.json(); if(j && j.detail) msg = (typeof j.detail==="string")?j.detail:JSON.stringify(j.detail); }catch(e){}
+    throw new Error(msg);
+  }
   return r.json();
+}
+async function apiSend(path, method, body){
+  return api(path, {method, headers:{"Content-Type":"application/json"},
+                    body: body!==undefined ? JSON.stringify(body) : undefined});
 }
 
 let lastBrand = null;
@@ -1026,7 +1121,212 @@ function fillSupplierTable(rows){
   });
 }
 
-initBrands();
+// =============================================================================
+//  AUTH FLOW — login / logout / user chip / เปลี่ยนรหัส / จัดการผู้ใช้ (admin)
+// =============================================================================
+function showGate(msg){
+  document.getElementById("loginErr").textContent = msg || "";
+  document.getElementById("loginGate").classList.add("show");
+  document.getElementById("userBox").style.display = "none";
+  setTimeout(()=>document.getElementById("loginUser").focus(), 50);
+}
+function hideGate(){ document.getElementById("loginGate").classList.remove("show"); }
+
+document.getElementById("loginForm").onsubmit = async (e)=>{
+  e.preventDefault();
+  const u=document.getElementById("loginUser").value.trim();
+  const p=document.getElementById("loginPass").value;
+  const btn=document.getElementById("loginBtn"), err=document.getElementById("loginErr");
+  if(!u||!p){ err.textContent="กรอกชื่อผู้ใช้และรหัสผ่าน"; return; }
+  btn.disabled=true; btn.textContent="กำลังเข้าสู่ระบบ…"; err.textContent="";
+  try{
+    const res=await fetch(API+"/api/login",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.detail||"เข้าสู่ระบบไม่สำเร็จ");
+    authToken=data.token; authUser=data.user;
+    try{ localStorage.setItem("pa-token",authToken); localStorage.setItem("pa-user",JSON.stringify(authUser)); }catch(e){}
+    document.getElementById("loginPass").value="";
+    hideGate(); afterLogin();
+  }catch(ex){ err.textContent=ex.message; }
+  finally{ btn.disabled=false; btn.textContent="เข้าสู่ระบบ"; }
+};
+
+function doLogout(msg){
+  authToken=null; authUser=null;
+  try{ localStorage.removeItem("pa-token"); localStorage.removeItem("pa-user"); }catch(e){}
+  showGate(msg);
+}
+
+function renderUserChip(){
+  const box=document.getElementById("userBox");
+  box.style.display="flex";
+  const isAdmin = authUser && authUser.role==="admin";
+  box.innerHTML = `
+    <span class="uchip">${authUser.username}${isAdmin?' <span class="role">ADMIN</span>':''}</span>
+    ${isAdmin?'<button class="iconbtn" id="btnUsers" title="จัดการผู้ใช้">👥</button>':''}
+    <button class="iconbtn" id="btnChpw" title="เปลี่ยนรหัสผ่าน">🔑</button>
+    <button class="iconbtn" id="btnLogout" title="ออกจากระบบ">ออก</button>`;
+  document.getElementById("btnLogout").onclick=()=>doLogout();
+  document.getElementById("btnChpw").onclick=()=>openChangePw(false);
+  if(isAdmin) document.getElementById("btnUsers").onclick=openUsers;
+}
+
+function afterLogin(){
+  renderUserChip();
+  initBrands();
+  if(authUser && authUser.must_change) openChangePw(true);
+}
+
+// ===== เปลี่ยนรหัสผ่าน =====
+function openChangePw(forced){
+  document.getElementById("pwSub").textContent = forced
+    ? "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน (รหัสเริ่มต้น)" : "";
+  document.getElementById("pwOld").value=""; document.getElementById("pwNew").value="";
+  document.getElementById("pwErr").textContent="";
+  document.getElementById("pwX").style.display = forced ? "none" : "";
+  document.getElementById("pwBg").classList.add("show");
+}
+document.getElementById("pwX").onclick=()=>document.getElementById("pwBg").classList.remove("show");
+document.getElementById("pwSave").onclick=async ()=>{
+  const err=document.getElementById("pwErr");
+  const oldp=document.getElementById("pwOld").value, newp=document.getElementById("pwNew").value;
+  if(newp.length<6){ err.textContent="รหัสใหม่ต้องยาวอย่างน้อย 6 ตัว"; return; }
+  try{
+    await apiSend("/api/change-password","POST",{old_password:oldp,new_password:newp});
+    if(authUser){ authUser.must_change=false; try{localStorage.setItem("pa-user",JSON.stringify(authUser));}catch(e){} }
+    document.getElementById("pwBg").classList.remove("show");
+  }catch(ex){ err.textContent=ex.message; }
+};
+
+// ===== จัดการผู้ใช้ (admin) =====
+async function openUsers(){
+  document.getElementById("usersBg").classList.add("show");
+  const body=document.getElementById("usersBody");
+  body.innerHTML=`<div class="loading">กำลังโหลด…</div>`;
+  try{
+    const [users, brands] = await Promise.all([
+      api("/api/admin/users"), api("/api/brands")
+    ]);
+    renderUsers(users, brands.map(b=>b.brand_code));
+  }catch(ex){ body.innerHTML=`<div class="err">${ex.message}</div>`; }
+}
+document.getElementById("usersX").onclick=()=>document.getElementById("usersBg").classList.remove("show");
+
+function brandChecks(codes, selected, name){
+  const sel=new Set(selected||[]);
+  return codes.map(c=>`<label><input type="checkbox" value="${c}" data-grp="${name}"
+    ${sel.has(c)?'checked':''}> ${c}</label>`).join("");
+}
+function readChecks(name){
+  return [...document.querySelectorAll(`input[data-grp="${name}"]:checked`)].map(x=>x.value);
+}
+
+function renderUsers(users, allBrands){
+  const body=document.getElementById("usersBody");
+  body.innerHTML=`
+    <div class="addrow">
+      <div><label style="font-size:12px;color:var(--ink-2);font-weight:600">ชื่อผู้ใช้ใหม่</label>
+        <input id="nuUser" style="width:100%;box-sizing:border-box"></div>
+      <div><label style="font-size:12px;color:var(--ink-2);font-weight:600">รหัสผ่าน (≥6)</label>
+        <input id="nuPass" type="text" style="width:100%;box-sizing:border-box"></div>
+      <button class="btn-primary" id="nuAdd">+ เพิ่ม</button>
+      <div class="full">
+        <label style="font-size:12px;color:var(--ink-2);font-weight:600">สิทธิ์แบรนด์
+          <span style="font-weight:400">(ไม่ติ๊ก = ไม่เห็นแบรนด์ไหนเลย · ติ๊ก = user ธรรมดา)</span></label>
+        <div class="brandchks">
+          ${brandChecks(allBrands, [], "new")}
+          <label style="margin-left:12px"><input type="checkbox" id="nuAdmin"> <b>เป็น admin (เห็นทุกแบรนด์)</b></label>
+        </div>
+      </div>
+      <div class="full gate-err" id="nuErr" style="margin:0"></div>
+    </div>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>ผู้ใช้</th><th>สิทธิ์</th><th>แบรนด์</th><th>สถานะ</th><th class="num">จัดการ</th>
+    </tr></thead><tbody id="uBody"></tbody></table>
+    </div>`;
+
+  const tb=document.getElementById("uBody");
+  tb.innerHTML = users.map(u=>{
+    const isAdmin=u.role==="admin";
+    const brandTxt = isAdmin ? '<span style="color:var(--ink-2)">ทุกแบรนด์</span>'
+      : (u.brands ? u.brands.split(",").map(b=>`<span class="badge ok" style="margin-right:3px">${b}</span>`).join('') : '<span style="color:var(--muted)">—</span>');
+    return `<tr data-id="${u.id}" data-brands="${u.brands||''}" data-role="${u.role}">
+      <td>${u.username}${u.must_change?' <span style="color:var(--c2);font-size:10px">(ต้องเปลี่ยนรหัส)</span>':''}</td>
+      <td>${isAdmin?'<span class="role" style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">ADMIN</span>':'user'}</td>
+      <td>${brandTxt}</td>
+      <td>${u.is_active?'<span style="color:var(--c3)">ใช้งาน</span>':'<span style="color:var(--muted)">ปิด</span>'}</td>
+      <td class="num" style="white-space:nowrap">
+        <button class="mini" data-act="edit">แก้สิทธิ์</button>
+        <button class="mini" data-act="reset">รีเซ็ตรหัส</button>
+        <button class="mini danger" data-act="del">ลบ</button>
+      </td>
+    </tr>`;
+  }).join("");
+
+  // เพิ่ม user
+  document.getElementById("nuAdd").onclick=async ()=>{
+    const err=document.getElementById("nuErr");
+    const uname=document.getElementById("nuUser").value.trim();
+    const pass=document.getElementById("nuPass").value;
+    const admin=document.getElementById("nuAdmin").checked;
+    const brs=readChecks("new");
+    if(!uname||pass.length<6){ err.textContent="กรอกชื่อผู้ใช้และรหัสผ่าน ≥6 ตัว"; return; }
+    try{
+      await apiSend("/api/admin/users","POST",{username:uname,password:pass,
+        role:admin?"admin":"user", brands:admin?[]:brs});
+      openUsers();
+    }catch(ex){ err.textContent=ex.message; }
+  };
+
+  // ปุ่มในแต่ละแถว
+  tb.querySelectorAll("button[data-act]").forEach(btn=>{
+    const tr=btn.closest("tr"); const id=tr.dataset.id;
+    btn.onclick=async ()=>{
+      const act=btn.dataset.act;
+      try{
+        if(act==="del"){
+          if(!confirm("ลบผู้ใช้นี้?")) return;
+          await apiSend(`/api/admin/users/${id}`,"DELETE"); openUsers();
+        } else if(act==="reset"){
+          const np=prompt("ตั้งรหัสผ่านใหม่ (≥6 ตัว):"); if(!np) return;
+          if(np.length<6){ alert("รหัสต้องยาว ≥6 ตัว"); return; }
+          await apiSend(`/api/admin/users/${id}`,"PATCH",{password:np});
+          alert("รีเซ็ตรหัสแล้ว — ผู้ใช้ต้องเปลี่ยนรหัสเมื่อเข้าครั้งถัดไป");
+        } else if(act==="edit"){
+          openEditRow(tr, allBrands);
+        }
+      }catch(ex){ alert(ex.message); }
+    };
+  });
+}
+
+// แก้สิทธิ์แบรนด์/role แบบ inline
+function openEditRow(tr, allBrands){
+  const id=tr.dataset.id;
+  const curBrands=(tr.dataset.brands||"").split(",").filter(Boolean);
+  const isAdmin=tr.dataset.role==="admin";
+  const cell=tr.querySelector("td:nth-child(3)");
+  cell.innerHTML=`
+    <div class="brandchks" style="margin-bottom:6px">${brandChecks(allBrands, curBrands, "edit"+id)}
+      <label style="margin-left:8px"><input type="checkbox" class="editAdmin" ${isAdmin?'checked':''}> admin</label>
+    </div>
+    <button class="mini" data-save="1">บันทึก</button>
+    <button class="mini" data-cancel="1">ยกเลิก</button>`;
+  cell.querySelector("[data-cancel]").onclick=openUsers;
+  cell.querySelector("[data-save]").onclick=async ()=>{
+    const admin=cell.querySelector(".editAdmin").checked;
+    const brs=readChecks("edit"+id);
+    try{
+      await apiSend(`/api/admin/users/${id}`,"PATCH",{role:admin?"admin":"user", brands:admin?[]:brs});
+      openUsers();
+    }catch(ex){ alert(ex.message); }
+  };
+}
+
+// ===== bootstrap =====
+if(authToken && authUser){ afterLogin(); } else { showGate(); }
 </script>
 </body>
 </html>
