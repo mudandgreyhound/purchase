@@ -698,7 +698,7 @@ async function loadOutstanding(brand){
       api(`/api/po/aging?brand=${brand}`),
       api(`/api/po/by-supplier?brand=${brand}&limit=15`),
       api(`/api/po/by-location?brand=${brand}`),
-      api(`/api/po/list?brand=${brand}&limit=200`),
+      api(`/api/po/list?brand=${brand}&limit=500`),
     ]);
     renderOutstanding(app, {kpi, aging, sups, locs, list});
   }catch(e){
@@ -785,46 +785,91 @@ function fillPoSuppliers(rows){
     </tr>`).join("");
 }
 
+const PO_ST={1:"Open",2:"รับบางส่วน"};
+function odBadge(od){
+  if(od>30) return `<span class="badge over">เกิน ${od} วัน</span>`;
+  if(od>0)  return `<span class="badge soon">เกิน ${od} วัน</span>`;
+  return `<span class="badge ok">${od===0?'ครบกำหนดวันนี้':'อีก '+(-od)+' วัน'}</span>`;
+}
 function fillPoList(rows){
   const body=document.getElementById("poListBody");
   if(!rows||!rows.length){body.innerHTML=`<tr><td colspan="9" style="color:var(--muted)">ไม่มี PO ค้างรับ 🎉</td></tr>`;return;}
-  const ST={1:"Open",2:"รับบางส่วน"};
-  body.innerHTML=rows.map(r=>{
-    const od=r.days_overdue;
-    let badge;
-    if(od>30) badge=`<span class="badge over">เกิน ${od} วัน</span>`;
-    else if(od>0) badge=`<span class="badge soon">เกิน ${od} วัน</span>`;
-    else badge=`<span class="badge ok">${od===0?'ครบกำหนดวันนี้':'อีก '+(-od)+' วัน'}</span>`;
-    return `<tr>
-      <td>${r.purch_id}</td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.item_name||'').replace(/"/g,'')}">${r.item_id} ${r.item_name||''}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.vendor_name||r.vendor_acct||''}</td>
-      <td title="${(r.location_name||'').replace(/"/g,'')}">${r.invent_location||'-'}</td>
-      <td class="num">${r.delivery_date||'-'}<br>${badge}</td>
-      <td class="num">${fmtN(r.qty_ordered)}</td>
-      <td class="num"><b>${fmtN(r.remain_physical)}</b></td>
-      <td class="num">${fmtB(r.outstanding_value)}</td>
-      <td class="num">${ST[r.purch_status]||r.purch_status}</td>
+  // จัดกลุ่มตาม purch_id (คงลำดับที่ backend เรียงมา = เกินกำหนดมากสุดก่อน)
+  const groups=new Map();
+  rows.forEach(r=>{ if(!groups.has(r.purch_id)) groups.set(r.purch_id,[]); groups.get(r.purch_id).push(r); });
+
+  let html="";
+  for(const [po, lines] of groups){
+    const g0=lines[0];
+    const worstOd=Math.max(...lines.map(l=>l.days_overdue));
+    const earliest=lines.map(l=>l.delivery_date).filter(Boolean).sort()[0]||'-';
+    const sumVal=lines.reduce((a,l)=>a+(+l.outstanding_value||0),0);
+    const statuses=new Set(lines.map(l=>l.purch_status));
+    const stTxt = statuses.size>1 ? "ผสม" : (PO_ST[g0.purch_status]||g0.purch_status);
+    const multi = lines.length>1;
+    // แถวหลัก (ราย PO)
+    html+=`<tr class="po-parent" data-po="${po}" style="cursor:pointer">
+      <td><span class="po-tog">${multi?'▸':'•'}</span> ${po}${multi?` <span style="color:var(--muted);font-size:11px">(${lines.length})</span>`:''}</td>
+      <td style="color:var(--ink-2)">${multi?lines.length+' รายการ':`${g0.item_id} ${g0.item_name||''}`}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g0.vendor_name||g0.vendor_acct||''}</td>
+      <td title="${(g0.location_name||'').replace(/"/g,'')}">${g0.invent_location||'-'}</td>
+      <td class="num">${earliest}<br>${odBadge(worstOd)}</td>
+      <td class="num">${multi?'—':fmtN(g0.qty_ordered)}</td>
+      <td class="num">${multi?'—':`<b>${fmtN(g0.remain_physical)}</b>`}</td>
+      <td class="num"><b>${fmtB(sumVal)}</b></td>
+      <td class="num">${stTxt}</td>
     </tr>`;
-  }).join("");
+    // แถวย่อย (รายบรรทัด) — ซ่อนไว้ กางเมื่อคลิก (เฉพาะ PO ที่มีหลายรายการ)
+    if(multi){
+      lines.forEach(l=>{
+        html+=`<tr class="po-child" data-parent="${po}" hidden style="background:var(--surface-2)">
+          <td></td>
+          <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:18px" title="${(l.item_name||'').replace(/"/g,'')}">${l.item_id} ${l.item_name||''}</td>
+          <td></td>
+          <td>${l.invent_location||''}</td>
+          <td class="num">${l.delivery_date||'-'}<br>${odBadge(l.days_overdue)}</td>
+          <td class="num">${fmtN(l.qty_ordered)}</td>
+          <td class="num"><b>${fmtN(l.remain_physical)}</b></td>
+          <td class="num">${fmtB(l.outstanding_value)}</td>
+          <td class="num">${PO_ST[l.purch_status]||l.purch_status}</td>
+        </tr>`;
+      });
+    }
+  }
+  body.innerHTML=html;
+  // toggle กาง/ยุบ
+  body.querySelectorAll("tr.po-parent").forEach(tr=>{
+    const po=tr.dataset.po;
+    const kids=body.querySelectorAll(`tr.po-child[data-parent="${po}"]`);
+    if(!kids.length) return;
+    tr.onclick=()=>{
+      const tog=tr.querySelector(".po-tog");
+      const open=tog.textContent==="▾";
+      tog.textContent=open?"▸":"▾";
+      kids.forEach(k=>k.hidden=open);
+    };
+  });
 }
 
 // =============================================================================
 //  PRICE ANALYSIS (มุมที่ 3)
 // =============================================================================
-let priceDir = "all";   // ทิศทางที่กรองในตารางราคาเปลี่ยนแปลง
+let priceDir = "all";     // ทิศทางที่กรองในตารางราคาเปลี่ยนแปลง
+let priceGroup = "";      // หมวด (item_group) ที่กรอง — "" = ทุกหมวด
 
 async function loadPrice(brand){
   lastBrand = brand;
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
   app.innerHTML = `<div class="loading">กำลังโหลดราคา ${brand}…</div>`;
+  const grp = priceGroup ? `&group=${encodeURIComponent(priceGroup)}` : "";
   try{
-    const [changes, summary] = await Promise.all([
-      api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50${dp()}`),
+    const [changes, summary, groups] = await Promise.all([
+      api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50${grp}${dp()}`),
       api(`/api/price/summary?brand=${brand}&limit=100${dp()}`),
+      api(`/api/price/groups?brand=${brand}${dp()}`),
     ]);
-    renderPrice(app, {brand, changes, summary});
+    renderPrice(app, {brand, changes, summary, groups});
   }catch(e){
     app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
   }
@@ -838,6 +883,10 @@ function renderPrice(app, d){
           <button class="tab ${priceDir==='all'?'active':''}" data-dir="all" style="padding:3px 10px;font-size:12px">ทั้งหมด</button>
           <button class="tab ${priceDir==='up'?'active':''}" data-dir="up" style="padding:3px 10px;font-size:12px">ขึ้น ▲</button>
           <button class="tab ${priceDir==='down'?'active':''}" data-dir="down" style="padding:3px 10px;font-size:12px">ลง ▼</button>
+          <select id="priceGrpSel" style="margin-left:8px;padding:4px 8px;font-size:12px">
+            <option value="">ทุกหมวด</option>
+            ${(d.groups||[]).map(g=>`<option value="${g.item_group}" ${g.item_group===priceGroup?'selected':''}>${g.item_group}${g.item_group_name?' — '+g.item_group_name:''} (${g.sku_count})</option>`).join("")}
+          </select>
         </span>
       </h2>
       <div style="overflow-x:auto">
@@ -878,6 +927,9 @@ function renderPrice(app, d){
   document.querySelectorAll("[data-dir]").forEach(b=>{
     b.onclick=()=>{ priceDir=b.dataset.dir; loadPrice(lastBrand); };
   });
+  // dropdown กรองหมวด
+  const gsel=document.getElementById("priceGrpSel");
+  if(gsel) gsel.onchange=()=>{ priceGroup=gsel.value; loadPrice(lastBrand); };
   // ค้นหา
   const si=document.getElementById("priceSearch");
   si.onkeydown=async(e)=>{
