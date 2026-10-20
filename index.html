@@ -140,7 +140,7 @@
 <div class="gate" id="loginGate">
   <div class="gate-card">
     <h1>Purchase Dashboard</h1>
-    <div class="sub">Mud & Hound Public Company Limited · เข้าสู่ระบบ</div>
+    <div class="sub">Mud & Hound Public Company Limited Group · เข้าสู่ระบบ</div>
     <form id="loginForm">
       <label>ชื่อผู้ใช้</label>
       <input type="text" id="loginUser" autocomplete="username" autofocus>
@@ -866,7 +866,7 @@ async function loadPrice(brand){
   try{
     const [changes, summary, groups] = await Promise.all([
       api(`/api/price/changes?brand=${brand}&direction=${priceDir}&limit=50${grp}${dp()}`),
-      api(`/api/price/summary?brand=${brand}&limit=100${dp()}`),
+      api(`/api/price/summary?brand=${brand}&limit=100${grp}${dp()}`),
       api(`/api/price/groups?brand=${brand}${dp()}`),
     ]);
     renderPrice(app, {brand, changes, summary, groups});
@@ -934,7 +934,8 @@ function renderPrice(app, d){
   const si=document.getElementById("priceSearch");
   si.onkeydown=async(e)=>{
     if(e.key==="Enter"){
-      const rows=await api(`/api/price/summary?brand=${d.brand}&limit=100&search=${encodeURIComponent(si.value)}${dp()}`);
+      const grp=priceGroup?`&group=${encodeURIComponent(priceGroup)}`:"";
+      const rows=await api(`/api/price/summary?brand=${d.brand}&limit=100&search=${encodeURIComponent(si.value)}${grp}${dp()}`);
       fillPriceSummary(rows, d.brand);
     }
   };
