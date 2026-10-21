@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Purchase Summary — Mud & Hound Public Company Limited</title>
+<title>Purchase Summary — Greyhound Group</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{
@@ -140,7 +140,7 @@
 <div class="gate" id="loginGate">
   <div class="gate-card">
     <h1>Purchase Dashboard</h1>
-    <div class="sub">Mud & Hound Public Company Limited Group · เข้าสู่ระบบ</div>
+    <div class="sub">Greyhound Group · เข้าสู่ระบบ</div>
     <form id="loginForm">
       <label>ชื่อผู้ใช้</label>
       <input type="text" id="loginUser" autocomplete="username" autofocus>
@@ -156,7 +156,7 @@
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Mud & Hound Public Company Limited</div>
+      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -442,10 +442,12 @@ function render(app, d){
     </div>
 
     <div class="panel" style="margin-top:16px">
-      <h2>จำนวนชนิดวัตถุดิบ (SKU) แยกตาม Supplier</h2>
+      <h2>จำนวนชนิดวัตถุดิบ (SKU) แยกตาม Supplier
+        <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:6px">สั่งซื้อ = ยอด PO ที่เปิด · รับจริง = รับของ/วางบิลแล้ว</span>
+      </h2>
       <table><thead><tr>
-        <th>Supplier</th><th class="num">จำนวน SKU</th>
-        <th class="num">PO</th><th class="num">ยอดซื้อ</th>
+        <th>Supplier</th><th class="num">จำนวน SKU</th><th class="num">PO</th>
+        <th class="num">ยอดสั่งซื้อ</th><th class="num">รับจริง</th><th class="num">ยังไม่รับ</th>
       </tr></thead><tbody id="supSkuBody"></tbody></table>
     </div>`;
 
@@ -670,18 +672,23 @@ function fillCatDetail(rows){
 function fillSupplierSku(rows){
   const body=document.getElementById("supSkuBody");
   if(!body) return;
-  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="4" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
+  if(!rows||!rows.length){ body.innerHTML=`<tr><td colspan="6" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`; return; }
   const max=Math.max(...rows.map(r=>+r.sku_count),1);
-  body.innerHTML=rows.map(r=>`
-    <tr>
+  body.innerHTML=rows.map(r=>{
+    const ordered=+r.ordered_amount||0, received=+r.received_amount||0;
+    const diff=ordered-received;   // ยังไม่รับ/ยังไม่วางบิล
+    return `<tr>
       <td class="bar-cell">
         <span class="fill" style="width:${(+r.sku_count/max*100).toFixed(0)}%"></span>
         <span style="position:relative">${r.vendor_name||r.vendor_acct}</span>
       </td>
       <td class="num"><b>${fmtN(r.sku_count)}</b> ชนิด</td>
       <td class="num">${fmtN(r.po_count)}</td>
-      <td class="num">${fmtB(r.purchase_amount)}</td>
-    </tr>`).join("");
+      <td class="num">${fmtB(ordered)}</td>
+      <td class="num" style="color:var(--c3)">${fmtB(received)}</td>
+      <td class="num" style="color:${diff>0?'var(--c2)':'var(--muted)'}">${diff>0?fmtB(diff):'—'}</td>
+    </tr>`;
+  }).join("");
 }
 
 // =============================================================================
