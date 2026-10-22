@@ -1274,9 +1274,9 @@ function renderExec(app, k){
       </div>`:''}
       ${k.waste_cost!=null?`
       <div class="exec-card">
-        <div class="ex-label">มูลค่าของเสีย (Waste)</div>
-        <div class="ex-value" style="color:${k.waste_pct!=null&&k.waste_pct>5?'var(--c4)':k.waste_pct!=null&&k.waste_pct>2?'var(--c2)':'var(--c3)'}">${fmtB(k.waste_cost)}</div>
-        <div class="ex-sub">Waste Cost · journal "Issue Shop Waste"${k.waste_pct!=null?' · ~'+k.waste_pct.toFixed(1)+'% ของยอดเบิกใช้':''} · ${fmtN(k.waste_items)} รายการ (${k.cogs_window} วัน)</div>
+        <div class="ex-label">มูลค่าของเสีย (Waste) <span style="font-weight:400;color:var(--muted);font-size:11px">ตามช่วงที่เลือก</span></div>
+        <div class="ex-value" style="color:${k.waste_pct!=null&&k.waste_pct>3?'var(--c4)':k.waste_pct!=null&&k.waste_pct>1?'var(--c2)':'var(--c3)'}">${fmtB(k.waste_cost)}</div>
+        <div class="ex-sub">Waste Cost · journal "Issue Shop Waste"${k.waste_pct!=null?' · ~'+k.waste_pct.toFixed(1)+'% ของยอดซื้อ':''} · ${fmtN(k.waste_items)} รายการ</div>
       </div>`:''}
     </div>
 
