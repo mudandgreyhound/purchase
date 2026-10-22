@@ -132,6 +132,17 @@
   .addrow .full{grid-column:1/-1}
   .mini{padding:4px 9px;font-size:12px}
   .mini.danger{color:var(--c4);border-color:var(--c4)}
+  /* exec KPI */
+  .exec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .exec-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 20px}
+  .exec-card .ex-label{font-size:13px;color:var(--ink-2);font-weight:600;margin-bottom:10px}
+  .exec-card .ex-value{font-size:34px;font-weight:700;letter-spacing:-0.5px;line-height:1.1}
+  .exec-card .ex-sub{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .roadmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .rm-item{background:var(--surface-2);border-radius:10px;padding:14px}
+  .rm-item b{font-size:13px}
+  .rm-item span{display:block;font-size:12px;color:var(--ink-2);margin:4px 0 6px}
+  .rm-item em{display:block;font-size:11px;color:var(--muted);font-style:normal}
 </style>
 </head>
 <body>
@@ -176,7 +187,8 @@
   </header>
 
   <div class="tabs">
-    <button class="tab active" data-tab="summary">สรุปยอดจัดซื้อ</button>
+    <button class="tab active" data-tab="exec">ภาพรวมผู้บริหาร</button>
+    <button class="tab" data-tab="summary">สรุปยอดจัดซื้อ</button>
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
     <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
     <button class="tab" data-tab="supplier">ประเมินผู้ขาย</button>
@@ -239,7 +251,7 @@ const fmtB = n => "฿" + Number(n||0).toLocaleString("th-TH",{maximumFractionDi
 const fmtN = n => Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
 let charts = {};
 
-let currentTab = "summary";
+let currentTab = "exec";
 
 // ===== theme toggle =====
 document.getElementById("themeBtn").onclick = () => {
@@ -357,6 +369,7 @@ async function initBrands(){
 
 // dispatch ตามแท็บที่เลือก
 async function load(brand){
+  if(currentTab==="exec") return loadExec(brand);
   if(currentTab==="outstanding") return loadOutstanding(brand);
   if(currentTab==="price") return loadPrice(brand);
   if(currentTab==="supplier") return loadSupplier(brand);
@@ -1184,6 +1197,64 @@ function fillSupplierTable(rows){
   body.querySelectorAll("tr.clickable").forEach(tr=>{
     tr.onclick = () => openSupplierItems(lastBrand, tr.dataset.acct, tr.dataset.name);
   });
+}
+
+// =============================================================================
+//  EXECUTIVE KPI (ภาพรวมผู้บริหาร)
+// =============================================================================
+async function loadExec(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังโหลด KPI ${brand}…</div>`;
+  try{
+    const k = await api(`/api/exec/kpi?brand=${brand}${dp()}`);
+    renderExec(app, k);
+  }catch(e){
+    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+  }
+}
+
+function renderExec(app, k){
+  const fmtPct = v => v==null ? "—" : (v>0?"+":"")+(+v).toFixed(1)+"%";
+  // PPV: บวก = จ่ายแพงกว่ามาตรฐาน (ไม่ดี=แดง), ลบ = ถูกกว่า (ดี=เขียว)
+  const ppvColor = k.ppv_pct==null ? "var(--ink)" : (k.ppv_pct>2?"var(--c4)":k.ppv_pct<-2?"var(--c3)":"var(--c2)");
+  const otColor  = k.ontime_pct==null ? "var(--ink)" : (k.ontime_pct>=90?"var(--c3)":k.ontime_pct>=75?"var(--c2)":"var(--c4)");
+  const fillColor= k.fill_pct==null ? "var(--ink)" : (k.fill_pct>=95?"var(--c3)":k.fill_pct>=80?"var(--c2)":"var(--c4)");
+  app.innerHTML = `
+    <div class="exec-grid">
+      <div class="exec-card">
+        <div class="ex-label">มูลค่าจัดซื้อ (รับจริง)</div>
+        <div class="ex-value">${fmtB(k.total_purchase)}</div>
+        <div class="ex-sub">Total Purchase Value · ช่วงที่เลือก</div>
+      </div>
+      <div class="exec-card">
+        <div class="ex-label">ส่วนต่างราคา vs มาตรฐาน</div>
+        <div class="ex-value" style="color:${ppvColor}">${k.ppv_pct==null?'—':fmtPct(k.ppv_pct)}</div>
+        <div class="ex-sub">Purchase Price Variance · ${fmtN(k.ppv_items)} รายการมีราคามาตรฐาน<br>
+          <span style="color:${ppvColor}">${k.ppv_pct==null?'':(k.ppv_pct>0?'จ่ายสูงกว่ามาตรฐาน':'จ่ายต่ำกว่ามาตรฐาน')}</span></div>
+      </div>
+      <div class="exec-card">
+        <div class="ex-label">ส่งตรงเวลา (Supplier)</div>
+        <div class="ex-value" style="color:${otColor}">${k.ontime_pct==null?'—':k.ontime_pct.toFixed(1)+'%'}</div>
+        <div class="ex-sub">Supplier On-Time · ${fmtN(k.ontime_lines)}/${fmtN(k.due_lines)} บรรทัดมีกำหนด</div>
+      </div>
+      <div class="exec-card">
+        <div class="ex-label">อัตรารับครบ (PO Fill Rate)</div>
+        <div class="ex-value" style="color:${fillColor}">${k.fill_pct==null?'—':k.fill_pct.toFixed(1)+'%'}</div>
+        <div class="ex-sub">รับจริง ${fmtB(k.fill_received)} / สั่ง ${fmtB(k.fill_ordered)} (ถ่วงมูลค่า)</div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:18px">
+      <h2>KPI ที่ยังไม่เปิด (รอข้อมูลเพิ่ม)</h2>
+      <div class="roadmap">
+        <div class="rm-item"><b>สต๊อก</b><span>Inventory Value · Days of Inventory · Stockout% · Overstock · Turnover</span>
+          <em>รอ Inventory ETL (INVENTSUM) — มีสิทธิ์เข้าแล้ว</em></div>
+        <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>รอดึงงบจากโมดูล Budget (AX)</em></div>
+        <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time% · Waste Cost</span><em>รอข้อมูลใบเบิก/รอบส่ง/ของเสีย</em></div>
+      </div>
+    </div>`;
 }
 
 // =============================================================================
