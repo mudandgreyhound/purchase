@@ -1267,8 +1267,8 @@ function renderExec(app, k){
         <div class="ex-sub">Inventory Turnover · ยิ่งสูง = หมุนไว เงินจมน้อย</div>
       </div>`:''}
       ${k.overstock_value!=null?`
-      <div class="exec-card">
-        <div class="ex-label">สต๊อกไม่เคลื่อนไหว (90 วัน) <span style="font-weight:400;color:var(--muted);font-size:11px">คลังกลาง</span></div>
+      <div class="exec-card ${k.overstock_items>0?'clickable-card':''}" id="deadCard">
+        <div class="ex-label">สต๊อกไม่เคลื่อนไหว (90 วัน) <span style="font-weight:400;color:var(--muted);font-size:11px">คลังกลาง${k.overstock_items>0?' · คลิกดูรายการ ›':''}</span></div>
         <div class="ex-value" style="color:${k.overstock_value>0?'var(--c2)':'var(--ink)'}">${fmtB(k.overstock_value)}</div>
         <div class="ex-sub">Dead Stock · ${fmtN(k.overstock_items)} รายการ ไม่มีการใช้เลยใน 90 วัน${k.inv_central?' · '+(k.overstock_value/k.inv_central*100).toFixed(0)+'% ของคลังกลาง':''}</div>
       </div>`:''}
@@ -1284,6 +1284,45 @@ function renderExec(app, k){
 
   const pc=document.getElementById("ppvCard");
   if(pc && pc.classList.contains("clickable-card")) pc.onclick=()=>openPpvDetail(lastBrand);
+  const dc=document.getElementById("deadCard");
+  if(dc && dc.classList.contains("clickable-card")) dc.onclick=()=>openDeadStock(lastBrand);
+}
+
+// drill-down: รายการสต๊อกไม่เคลื่อนไหว
+async function openDeadStock(brand){
+  const bg=document.getElementById("modalBg");
+  document.getElementById("modalTitle").textContent="สต๊อกไม่เคลื่อนไหว (90 วัน) — คลังกลาง";
+  document.getElementById("modalSub").textContent="มีของค้างอยู่แต่ไม่มีการเบิกใช้เลยใน 90 วัน · เรียงตามมูลค่าจมสูงสุด · ณ ปัจจุบัน";
+  const body=document.getElementById("modalBody");
+  body.innerHTML=`<div class="loading">กำลังโหลด…</div>`;
+  bg.classList.add("show");
+  try{
+    const rows=await api(`/api/exec/deadstock-detail?brand=${brand}&limit=80`);
+    if(!rows.length){ body.innerHTML=`<div style="color:var(--muted);padding:20px;text-align:center">ไม่มีรายการ 🎉</div>`; return; }
+    const tot=rows.reduce((a,r)=>a+(+r.oh_val||0),0)||1;
+    const max=Math.max(...rows.map(r=>+r.oh_val),1);
+    body.innerHTML=`
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">${rows.length} รายการแรก · รวม <b style="color:var(--ink)">${fmtB(tot)}</b></div>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>วัตถุดิบ</th><th>หมวด</th><th>คลัง</th>
+        <th class="num">คงเหลือ</th><th class="num">มูลค่าจม</th><th class="num">%</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>`
+        <tr>
+          <td class="bar-cell" style="max-width:260px">
+            <span class="fill" style="width:${(+r.oh_val/max*100).toFixed(0)}%;background:var(--c2)"></span>
+            <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:250px"
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+          </td>
+          <td>${r.item_group||'-'}</td>
+          <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.locs||'').replace(/"/g,'&quot;')}">${r.locs||'-'}</td>
+          <td class="num">${fmtN(r.oh_qty)}${r.purch_unit?' '+r.purch_unit:''}</td>
+          <td class="num"><b>${fmtB(r.oh_val)}</b></td>
+          <td class="num">${(+r.share_pct).toFixed(1)}%</td>
+        </tr>`).join("")}
+      </tbody></table></div>`;
+  }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
 }
 
 // drill-down PPV: รายการที่ทำให้ส่วนต่างพุ่ง
