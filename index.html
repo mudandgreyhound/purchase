@@ -1231,8 +1231,9 @@ function renderExec(app, k){
       <div class="exec-card">
         <div class="ex-label">ส่วนต่างราคา vs มาตรฐาน</div>
         <div class="ex-value" style="color:${ppvColor}">${k.ppv_pct==null?'—':fmtPct(k.ppv_pct)}</div>
-        <div class="ex-sub">Purchase Price Variance · ${fmtN(k.ppv_items)} รายการมีราคามาตรฐาน<br>
-          <span style="color:${ppvColor}">${k.ppv_pct==null?'':(k.ppv_pct>0?'จ่ายสูงกว่ามาตรฐาน':'จ่ายต่ำกว่ามาตรฐาน')}</span></div>
+        <div class="ex-sub">Purchase Price Variance (หมวด Goods) · ${fmtN(k.ppv_items)} รายการมีราคามาตรฐาน<br>
+          <span style="color:${ppvColor}">${k.ppv_pct==null?'':(k.ppv_pct>0?'จ่ายสูงกว่ามาตรฐาน':'จ่ายต่ำกว่ามาตรฐาน')}</span>
+          ${(k.ppv_items||0)<20?`<span style="color:var(--c2)">⚠ ข้อมูลน้อย — AX มีราคามาตรฐานไม่ครบ</span>`:''}</div>
       </div>
       <div class="exec-card">
         <div class="ex-label">ส่งตรงเวลา (Supplier)</div>
