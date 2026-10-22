@@ -1254,13 +1254,34 @@ function renderExec(app, k){
         <div class="ex-sub">Inventory Value · ${fmtN(k.inv_items)} รายการ${k.inv_as_of?' · ณ '+k.inv_as_of:''}
           ${(k.inv_value_all!=null && k.inv_value_all > k.inv_value*1.005)?`<br><span style="color:var(--muted)">+ หมวดอื่น ${fmtB(k.inv_value_all-k.inv_value)} (ZZ/ZF ค่าใช้จ่าย) · รวม ${fmtB(k.inv_value_all)}</span>`:''}</div>
       </div>`:''}
+      ${k.doi_days!=null?`
+      <div class="exec-card">
+        <div class="ex-label">จำนวนวันที่สต๊อกพอใช้</div>
+        <div class="ex-value" style="color:${k.doi_days>90?'var(--c2)':k.doi_days<7?'var(--c4)':'var(--ink)'}">${fmtN(k.doi_days)} <span style="font-size:18px">วัน</span></div>
+        <div class="ex-sub">Days of Inventory · COGS ~${fmtB(k.cogs_daily)}/วัน (${k.cogs_window} วัน)</div>
+      </div>
+      <div class="exec-card">
+        <div class="ex-label">รอบหมุนสต๊อก (Turnover)</div>
+        <div class="ex-value">${k.turnover==null?'—':(+k.turnover).toFixed(1)} <span style="font-size:18px">รอบ/ปี</span></div>
+        <div class="ex-sub">Inventory Turnover · ยิ่งสูง = หมุนไว เงินจมน้อย</div>
+      </div>`:''}
+      ${k.stockout_pct!=null?`
+      <div class="exec-card">
+        <div class="ex-label">อัตราของขาด (Stockout)</div>
+        <div class="ex-value" style="color:${k.stockout_pct>10?'var(--c4)':k.stockout_pct>3?'var(--c2)':'var(--c3)'}">${k.stockout_pct.toFixed(1)}%</div>
+        <div class="ex-sub">Stockout Rate · ${fmtN(k.stockout_items)}/${fmtN(k.active_items)} รายการที่ใช้อยู่แต่ของหมด</div>
+      </div>`:''}
+      ${k.overstock_value!=null?`
+      <div class="exec-card">
+        <div class="ex-label">มูลค่าสต๊อกค้าง (Overstock)</div>
+        <div class="ex-value" style="color:${k.overstock_value>0?'var(--c2)':'var(--ink)'}">${fmtB(k.overstock_value)}</div>
+        <div class="ex-sub">Overstock · ${fmtN(k.overstock_items)} รายการ ไม่หมุน/เกิน 90 วัน${k.inv_value?' · '+(k.overstock_value/k.inv_value*100).toFixed(0)+'% ของสต๊อก':''}</div>
+      </div>`:''}
     </div>
 
     <div class="panel" style="margin-top:18px">
       <h2>KPI ที่ยังไม่เปิด (รอข้อมูลเพิ่ม)</h2>
       <div class="roadmap">
-        <div class="rm-item"><b>สต๊อก</b><span>Days of Inventory · Stockout% · Overstock · Turnover</span>
-          <em>${k.inv_value!=null?'Inventory Value ✓ แล้ว · ':''}รอ "อัตราใช้ต่อวัน" (INVENTTRANS issue) + ไม่มี min/max ใน AX</em></div>
         <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>รอดึงงบจากโมดูล Budget (AX)</em></div>
         <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time% · Waste Cost</span><em>รอข้อมูลใบเบิก/รอบส่ง/ของเสีย</em></div>
       </div>
