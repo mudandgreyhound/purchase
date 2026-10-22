@@ -1247,13 +1247,20 @@ function renderExec(app, k){
         <div class="ex-value" style="color:${fillColor}">${k.fill_pct==null?'—':k.fill_pct.toFixed(1)+'%'}</div>
         <div class="ex-sub">รับจริง ${fmtB(k.fill_received)} / สั่ง ${fmtB(k.fill_ordered)} (ถ่วงมูลค่า)</div>
       </div>
+      ${k.inv_value!=null?`
+      <div class="exec-card">
+        <div class="ex-label">มูลค่าสต๊อกคงเหลือ (Goods)</div>
+        <div class="ex-value">${fmtB(k.inv_value)}</div>
+        <div class="ex-sub">Inventory Value · ${fmtN(k.inv_items)} รายการ${k.inv_as_of?' · ณ '+k.inv_as_of:''}<br>
+          <span style="color:var(--muted)">รวมทุกหมวด ${fmtB(k.inv_value_all)} (มี ZZ/ZF ค่าใช้จ่าย)</span></div>
+      </div>`:''}
     </div>
 
     <div class="panel" style="margin-top:18px">
       <h2>KPI ที่ยังไม่เปิด (รอข้อมูลเพิ่ม)</h2>
       <div class="roadmap">
-        <div class="rm-item"><b>สต๊อก</b><span>Inventory Value · Days of Inventory · Stockout% · Overstock · Turnover</span>
-          <em>รอ Inventory ETL (INVENTSUM) — มีสิทธิ์เข้าแล้ว</em></div>
+        <div class="rm-item"><b>สต๊อก</b><span>Days of Inventory · Stockout% · Overstock · Turnover</span>
+          <em>${k.inv_value!=null?'Inventory Value ✓ แล้ว · ':''}รอ "อัตราใช้ต่อวัน" (INVENTTRANS issue) + ไม่มี min/max ใน AX</em></div>
         <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>รอดึงงบจากโมดูล Budget (AX)</em></div>
         <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time% · Waste Cost</span><em>รอข้อมูลใบเบิก/รอบส่ง/ของเสีย</em></div>
       </div>
