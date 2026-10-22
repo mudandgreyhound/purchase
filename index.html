@@ -1266,17 +1266,11 @@ function renderExec(app, k){
         <div class="ex-value">${k.turnover==null?'—':(+k.turnover).toFixed(1)} <span style="font-size:18px">รอบ/ปี</span></div>
         <div class="ex-sub">Inventory Turnover · ยิ่งสูง = หมุนไว เงินจมน้อย</div>
       </div>`:''}
-      ${k.stockout_pct!=null?`
-      <div class="exec-card">
-        <div class="ex-label">อัตราของขาด (Stockout) <span style="font-weight:400;color:var(--muted);font-size:11px">คลังกลาง</span></div>
-        <div class="ex-value" style="color:${k.stockout_pct>10?'var(--c4)':k.stockout_pct>3?'var(--c2)':'var(--c3)'}">${k.stockout_pct.toFixed(1)}%</div>
-        <div class="ex-sub">Stockout Rate · ${fmtN(k.stockout_items)}/${fmtN(k.active_items)} รายการที่ใช้อยู่แต่ของหมด</div>
-      </div>`:''}
       ${k.overstock_value!=null?`
       <div class="exec-card">
-        <div class="ex-label">มูลค่าสต๊อกค้าง (Overstock) <span style="font-weight:400;color:var(--muted);font-size:11px">คลังกลาง</span></div>
+        <div class="ex-label">สต๊อกไม่เคลื่อนไหว (90 วัน) <span style="font-weight:400;color:var(--muted);font-size:11px">คลังกลาง</span></div>
         <div class="ex-value" style="color:${k.overstock_value>0?'var(--c2)':'var(--ink)'}">${fmtB(k.overstock_value)}</div>
-        <div class="ex-sub">Overstock · ${fmtN(k.overstock_items)} รายการ ไม่หมุน/เกิน 90 วัน${k.inv_central?' · '+(k.overstock_value/k.inv_central*100).toFixed(0)+'% ของคลังกลาง':''}</div>
+        <div class="ex-sub">Dead Stock · ${fmtN(k.overstock_items)} รายการ ไม่มีการใช้เลยใน 90 วัน${k.inv_central?' · '+(k.overstock_value/k.inv_central*100).toFixed(0)+'% ของคลังกลาง':''}</div>
       </div>`:''}
     </div>
 
