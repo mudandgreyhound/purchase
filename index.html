@@ -138,6 +138,8 @@
   .exec-card .ex-label{font-size:13px;color:var(--ink-2);font-weight:600;margin-bottom:10px}
   .exec-card .ex-value{font-size:34px;font-weight:700;letter-spacing:-0.5px;line-height:1.1}
   .exec-card .ex-sub{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .exec-card.clickable-card{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .exec-card.clickable-card:hover{border-color:var(--accent);box-shadow:0 4px 16px rgba(0,0,0,.08)}
   .roadmap{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
   .rm-item{background:var(--surface-2);border-radius:10px;padding:14px}
   .rm-item b{font-size:13px}
@@ -1228,8 +1230,8 @@ function renderExec(app, k){
         <div class="ex-value">${fmtB(k.total_purchase)}</div>
         <div class="ex-sub">Total Purchase Value · ช่วงที่เลือก</div>
       </div>
-      <div class="exec-card">
-        <div class="ex-label">ส่วนต่างราคา vs มาตรฐาน</div>
+      <div class="exec-card ${(k.ppv_items||0)>0?'clickable-card':''}" id="ppvCard">
+        <div class="ex-label">ส่วนต่างราคา vs มาตรฐาน ${(k.ppv_items||0)>0?'<span style="font-weight:400;color:var(--muted);font-size:11px">คลิกดูรายการ ›</span>':''}</div>
         <div class="ex-value" style="color:${ppvColor}">${k.ppv_pct==null?'—':fmtPct(k.ppv_pct)}</div>
         <div class="ex-sub">Purchase Price Variance (หมวด Goods) · ${fmtN(k.ppv_items)} รายการมีราคามาตรฐาน<br>
           <span style="color:${ppvColor}">${k.ppv_pct==null?'':(k.ppv_pct>0?'จ่ายสูงกว่ามาตรฐาน':'จ่ายต่ำกว่ามาตรฐาน')}</span>
@@ -1256,6 +1258,52 @@ function renderExec(app, k){
         <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time% · Waste Cost</span><em>รอข้อมูลใบเบิก/รอบส่ง/ของเสีย</em></div>
       </div>
     </div>`;
+
+  const pc=document.getElementById("ppvCard");
+  if(pc && pc.classList.contains("clickable-card")) pc.onclick=()=>openPpvDetail(lastBrand);
+}
+
+// drill-down PPV: รายการที่ทำให้ส่วนต่างพุ่ง
+async function openPpvDetail(brand){
+  const bg=document.getElementById("modalBg");
+  document.getElementById("modalTitle").textContent="ส่วนต่างราคา vs มาตรฐาน — รายการที่กระทบมากสุด";
+  document.getElementById("modalSub").textContent="มูลค่าส่วนต่าง = (ราคาจริง − มาตรฐาน) × ปริมาณ · เฉพาะหมวด Goods"+
+    ((dateRange.from||dateRange.to)?` · ${dateRange.from||'เริ่มต้น'} ถึง ${dateRange.to||'ปัจจุบัน'}`:" · ทุกช่วงเวลา");
+  const body=document.getElementById("modalBody");
+  body.innerHTML=`<div class="loading">กำลังโหลด…</div>`;
+  bg.classList.add("show");
+  try{
+    const rows=await api(`/api/exec/ppv-detail?brand=${brand}&limit=50${dp()}`);
+    if(!rows.length){ body.innerHTML=`<div style="color:var(--muted);padding:20px;text-align:center">ไม่มีข้อมูล</div>`; return; }
+    const maxv=Math.max(...rows.map(r=>Math.abs(+r.var_value||0)),1);
+    body.innerHTML=`
+      <div style="font-size:12px;color:var(--ink-2);margin-bottom:10px">เรียงตามมูลค่าส่วนต่างสูงสุด (บวก = จ่ายแพงกว่ามาตรฐาน)</div>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>วัตถุดิบ</th><th>หมวด</th>
+        <th class="num">มาตรฐาน</th><th class="num">จริง(เฉลี่ย)</th><th class="num">%</th>
+        <th class="num">ปริมาณ</th><th class="num">มูลค่าส่วนต่าง</th><th class="num">%รวม</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const v=+r.var_value||0, up=v>0;
+        const pct=r.pct_vs_std;
+        return `<tr>
+          <td class="bar-cell" style="max-width:240px">
+            <span class="fill" style="width:${(Math.abs(v)/maxv*100).toFixed(0)}%;background:${up?'var(--c4)':'var(--c3)'}"></span>
+            <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:230px"
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+          </td>
+          <td>${r.item_group||'-'}</td>
+          <td class="num">฿${fmtP(r.std_price)}</td>
+          <td class="num"><b>฿${fmtP(r.avg_price)}</b></td>
+          <td class="num" style="color:${up?'var(--c4)':'var(--c3)'}">${pct==null?'—':(pct>0?'+':'')+pct.toFixed(0)+'%'}</td>
+          <td class="num">${fmtN(r.qty)}</td>
+          <td class="num" style="color:${up?'var(--c4)':'var(--c3)'}">${up?'+':''}${fmtB(v)}</td>
+          <td class="num">${(+r.share_pct).toFixed(1)}%</td>
+        </tr>`;
+      }).join("")}
+      </tbody></table></div>`;
+  }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
 }
 
 // =============================================================================
