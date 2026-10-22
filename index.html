@@ -1251,8 +1251,8 @@ function renderExec(app, k){
       <div class="exec-card">
         <div class="ex-label">มูลค่าสต๊อกคงเหลือ (Goods)</div>
         <div class="ex-value">${fmtB(k.inv_value)}</div>
-        <div class="ex-sub">Inventory Value · ${fmtN(k.inv_items)} รายการ${k.inv_as_of?' · ณ '+k.inv_as_of:''}<br>
-          <span style="color:var(--muted)">รวมทุกหมวด ${fmtB(k.inv_value_all)} (มี ZZ/ZF ค่าใช้จ่าย)</span></div>
+        <div class="ex-sub">Inventory Value · ${fmtN(k.inv_items)} รายการ${k.inv_as_of?' · ณ '+k.inv_as_of:''}
+          ${(k.inv_value_all!=null && k.inv_value_all > k.inv_value*1.005)?`<br><span style="color:var(--muted)">+ หมวดอื่น ${fmtB(k.inv_value_all-k.inv_value)} (ZZ/ZF ค่าใช้จ่าย) · รวม ${fmtB(k.inv_value_all)}</span>`:''}</div>
       </div>`:''}
     </div>
 
