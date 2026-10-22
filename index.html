@@ -1272,13 +1272,19 @@ function renderExec(app, k){
         <div class="ex-value" style="color:${k.overstock_value>0?'var(--c2)':'var(--ink)'}">${fmtB(k.overstock_value)}</div>
         <div class="ex-sub">Dead Stock · ${fmtN(k.overstock_items)} รายการ ไม่มีการใช้เลยใน 90 วัน${k.inv_central?' · '+(k.overstock_value/k.inv_central*100).toFixed(0)+'% ของคลังกลาง':''}</div>
       </div>`:''}
+      ${k.waste_cost!=null?`
+      <div class="exec-card">
+        <div class="ex-label">มูลค่าของเสีย (Waste)</div>
+        <div class="ex-value" style="color:${k.waste_pct!=null&&k.waste_pct>5?'var(--c4)':k.waste_pct!=null&&k.waste_pct>2?'var(--c2)':'var(--c3)'}">${fmtB(k.waste_cost)}</div>
+        <div class="ex-sub">Waste Cost · journal "Issue Shop Waste"${k.waste_pct!=null?' · ~'+k.waste_pct.toFixed(1)+'% ของยอดเบิกใช้':''} · ${fmtN(k.waste_items)} รายการ (${k.cogs_window} วัน)</div>
+      </div>`:''}
     </div>
 
     <div class="panel" style="margin-top:18px">
       <h2>KPI ที่ยังไม่เปิด (รอข้อมูลเพิ่ม)</h2>
       <div class="roadmap">
-        <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>รอดึงงบจากโมดูล Budget (AX)</em></div>
-        <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time% · Waste Cost</span><em>รอข้อมูลใบเบิก/รอบส่ง/ของเสีย</em></div>
+        <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>ไม่มีข้อมูลงบใน AX (ระบบไม่ได้ใส่ budget) — ทำไม่ได้</em></div>
+        <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time%</span><em>Waste ✓ แล้ว · เหลือรอข้อมูลใบเบิกสาขา/รอบส่ง</em></div>
       </div>
     </div>`;
 
