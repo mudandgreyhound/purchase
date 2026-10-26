@@ -1503,6 +1503,7 @@ document.getElementById("pwX").onclick=async ()=>{
   if(!oldp){ err.textContent="ใส่รหัสผ่านเดิมเพื่อยืนยันการปิด"; return; }
   try{
     await apiSend("/api/verify-password","POST",{password:oldp});
+    if(authUser){ authUser.must_change=false; try{localStorage.setItem("pa-user",JSON.stringify(authUser));}catch(e){} }
     document.getElementById("pwBg").classList.remove("show");
   }catch(ex){ err.textContent=ex.message; }
 };
