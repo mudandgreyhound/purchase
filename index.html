@@ -643,10 +643,20 @@ async function openSupplierItems(brand, acct, name){
     if(!rows.length){ body.innerHTML = `<div style="color:var(--muted);padding:20px;text-align:center">ไม่มีรายการในช่วงที่เลือก</div>`; return; }
     const total = rows.reduce((a,r)=>a+(+r.amount||0),0)||1;
     const max   = Math.max(...rows.map(r=>+r.amount),1);
+    // แยกยอดตามหมวด — ให้เห็นว่ายอดนี้เป็น Goods จริงเท่าไหร่ vs Expense/Capex
+    const byCat = {};
+    rows.forEach(r=>{ const c=r.category||'(none)'; byCat[c]=(byCat[c]||0)+(+r.amount||0); });
+    const catParts = Object.entries(byCat).sort((a,b)=>b[1]-a[1])
+      .map(([c,v])=>`<span style="${c!=='Goods'?'color:var(--c2)':''}">${c} <b>${fmtB(v)}</b> (${(v/total*100).toFixed(1)}%)</span>`)
+      .join(' · ');
+    const nonGoodsShare = (total-(byCat['Goods']||0))/total;
+    const warn = nonGoodsShare>0.3
+      ? ` <span style="color:var(--c2)">⚠ ส่วนใหญ่ไม่ใช่การจัดซื้อของ (Goods) — เป็นค่าใช้จ่าย/ลงทุน</span>` : '';
     body.innerHTML = `
-      <div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">
-        ${rows.length} ชนิดวัตถุดิบ · รวม <b style="color:var(--ink)">${fmtB(total)}</b>
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:4px">
+        ${rows.length} ชนิดวัตถุดิบ · รวม <b style="color:var(--ink)">${fmtB(total)}</b>${warn}
       </div>
+      <div style="font-size:12px;color:var(--ink-2);margin-bottom:10px">แยกหมวด: ${catParts}</div>
       <div style="overflow-x:auto">
       <table><thead><tr>
         <th>วัตถุดิบ</th><th>หมวด</th>
