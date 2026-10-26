@@ -227,6 +227,8 @@
       <input type="password" id="pwOld" style="width:100%;box-sizing:border-box;margin:4px 0 12px">
       <label style="font-size:13px;color:var(--ink-2);font-weight:600">รหัสผ่านใหม่ (≥6 ตัว)</label>
       <input type="password" id="pwNew" style="width:100%;box-sizing:border-box;margin:4px 0 12px">
+      <label style="font-size:13px;color:var(--ink-2);font-weight:600">ยืนยันรหัสผ่านใหม่</label>
+      <input type="password" id="pwNew2" style="width:100%;box-sizing:border-box;margin:4px 0 12px">
       <button class="btn-primary" id="pwSave">บันทึก</button>
       <div class="gate-err" id="pwErr"></div>
     </div>
@@ -1475,19 +1477,36 @@ function afterLogin(){
 }
 
 // ===== เปลี่ยนรหัสผ่าน =====
+let pwForced=false;
 function openChangePw(forced){
+  pwForced = !!forced;
   document.getElementById("pwSub").textContent = forced
-    ? "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน (รหัสเริ่มต้น)" : "";
-  document.getElementById("pwOld").value=""; document.getElementById("pwNew").value="";
+    ? "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน (รหัสเริ่มต้น) — หรือกด ✕ แล้วใส่รหัสเดิมเพื่อปิด" : "";
+  document.getElementById("pwOld").value="";
+  document.getElementById("pwNew").value="";
+  document.getElementById("pwNew2").value="";
   document.getElementById("pwErr").textContent="";
-  document.getElementById("pwX").style.display = forced ? "none" : "";
+  document.getElementById("pwX").style.display = "";   // โชว์ ✕ เสมอ (forced ปิดได้ด้วยการยืนยันรหัสเดิม)
   document.getElementById("pwBg").classList.add("show");
 }
-document.getElementById("pwX").onclick=()=>document.getElementById("pwBg").classList.remove("show");
+// ปิดหน้าต่าง: ถ้าไม่ได้บังคับ ปิดได้เลย · ถ้าบังคับ (login แรก) ต้องใส่รหัสเดิมยืนยันก่อน
+document.getElementById("pwX").onclick=async ()=>{
+  if(!pwForced){ document.getElementById("pwBg").classList.remove("show"); return; }
+  const err=document.getElementById("pwErr");
+  const oldp=document.getElementById("pwOld").value;
+  if(!oldp){ err.textContent="ใส่รหัสผ่านเดิมเพื่อยืนยันการปิด"; return; }
+  try{
+    await apiSend("/api/verify-password","POST",{password:oldp});
+    document.getElementById("pwBg").classList.remove("show");
+  }catch(ex){ err.textContent=ex.message; }
+};
 document.getElementById("pwSave").onclick=async ()=>{
   const err=document.getElementById("pwErr");
-  const oldp=document.getElementById("pwOld").value, newp=document.getElementById("pwNew").value;
+  const oldp=document.getElementById("pwOld").value,
+        newp=document.getElementById("pwNew").value,
+        newp2=document.getElementById("pwNew2").value;
   if(newp.length<6){ err.textContent="รหัสใหม่ต้องยาวอย่างน้อย 6 ตัว"; return; }
+  if(newp!==newp2){ err.textContent="รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน"; return; }
   try{
     await apiSend("/api/change-password","POST",{old_password:oldp,new_password:newp});
     if(authUser){ authUser.must_change=false; try{localStorage.setItem("pa-user",JSON.stringify(authUser));}catch(e){} }
