@@ -924,7 +924,7 @@ function renderPrice(app, d){
       </h2>
       <div style="overflow-x:auto">
       <table><thead><tr>
-        <th>สินค้า</th><th>หมวด</th><th class="num">ราคาก่อน</th>
+        <th>สินค้า</th><th>หมวด</th><th class="num">หน่วย</th><th class="num">ราคาก่อน</th>
         <th class="num">ราคาล่าสุด</th><th class="num">เปลี่ยน</th><th class="num">%</th>
         <th class="num">วันล่าสุด</th>
       </tr></thead><tbody id="priceChgBody"></tbody></table>
@@ -993,6 +993,7 @@ function fillPriceChanges(rows){
         ${showLt?`<div style="font-size:11px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${lt.replace(/"/g,'')}">↳ ${lt}</div>`:''}
       </td>
       <td>${r.item_group||'-'}</td>
+      <td class="num">${r.purch_unit||'-'}</td>
       <td class="num">฿${fmtP(r.prev_price)}</td>
       <td class="num"><b>฿${fmtP(r.latest_price)}</b></td>
       <td class="num" style="color:${up?'var(--c4)':'var(--c5)'}">${up?'+':''}${fmtP(r.diff)}</td>
