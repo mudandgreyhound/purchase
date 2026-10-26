@@ -179,6 +179,7 @@
         <span class="sep">–</span>
         <input type="date" id="dTo" title="วันที่สิ้นสุด">
         <button class="preset" data-preset="month">เดือนนี้</button>
+        <button class="preset" data-preset="lastmonth">เดือนที่แล้ว</button>
         <button class="preset" data-preset="3m">3 เดือน</button>
         <button class="preset" data-preset="year">ปีนี้</button>
         <button class="preset active" data-preset="all">ทั้งหมด</button>
@@ -306,6 +307,9 @@ function setPreset(p){
   if(p==="month"){
     dateRange.from = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
     dateRange.to   = isoLocal(now);
+  } else if(p==="lastmonth"){
+    dateRange.from = isoLocal(new Date(now.getFullYear(), now.getMonth()-1, 1));  // วันแรกเดือนก่อน
+    dateRange.to   = isoLocal(new Date(now.getFullYear(), now.getMonth(), 0));    // วันสุดท้ายเดือนก่อน
   } else if(p==="3m"){
     const f = new Date(now); f.setMonth(f.getMonth()-3);
     dateRange.from = isoLocal(f); dateRange.to = isoLocal(now);
