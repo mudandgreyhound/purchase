@@ -280,6 +280,10 @@ document.querySelectorAll(".tab").forEach(btn=>{
 
 // ===== date range (global) =====
 let dateRange = {from:null, to:null};   // null = ทั้งหมด (ไม่กรอง)
+let curPreset = "all";                  // preset ที่เลือกอยู่ (ใช้เลือก granularity กราฟ trend)
+// granularity ของกราฟ trend: เดือนนี้=รายวัน, เดือนที่แล้ว=รายสัปดาห์, ที่เหลือ=รายเดือน
+function granFor(p){ return p==="month" ? "day" : p==="lastmonth" ? "week" : "month"; }
+function granLabel(p){ return p==="month" ? "วัน" : p==="lastmonth" ? "สัปดาห์" : "เดือน"; }
 
 function isoLocal(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
@@ -301,6 +305,7 @@ function syncDateInputs(){
   document.getElementById("dTo").value   = dateRange.to   || "";
 }
 function markPreset(p){
+  curPreset = p;
   document.querySelectorAll(".preset").forEach(b=>
     b.classList.toggle("active", b.dataset.preset===p));
 }
@@ -394,7 +399,7 @@ async function loadSummary(brand){
     const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}${dp()}`),
       api(`/api/summary/mom?brand=${brand}`),
-      api(`/api/summary/monthly?brand=${brand}${dp()}`),
+      api(`/api/summary/monthly?brand=${brand}${dp()}&gran=${granFor(curPreset)}`),
       api(`/api/summary/by-category?brand=${brand}${dp()}`),
       api(`/api/summary/by-supplier?brand=${brand}&limit=15${dp()}`),
       api(`/api/summary/by-location?brand=${brand}${dp()}`),
@@ -426,7 +431,7 @@ function render(app, d){
 
     <div class="grid two">
       <div class="panel">
-        <h2>แนวโน้มยอดซื้อรายเดือน</h2>
+        <h2>แนวโน้มยอดซื้อราย${granLabel(curPreset)}</h2>
         <div class="chart-box"><canvas id="trendChart"></canvas></div>
       </div>
       <div class="panel">
