@@ -1325,7 +1325,7 @@ async function openDeadStock(brand){
           </td>
           <td>${r.item_group||'-'}</td>
           <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.locs||'').replace(/"/g,'&quot;')}">${r.locs||'-'}</td>
-          <td class="num">${fmtN(r.oh_qty)}${r.purch_unit?' '+r.purch_unit:''}</td>
+          <td class="num">${fmtN(r.oh_qty)}${r.unit?' '+r.unit:''}</td>
           <td class="num"><b>${fmtB(r.oh_val)}</b></td>
           <td class="num">${(+r.share_pct).toFixed(1)}%</td>
         </tr>`).join("")}
@@ -1405,7 +1405,7 @@ async function openWasteDetail(brand){
                   title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
           </td>
           <td>${r.item_group||'-'}</td>
-          <td class="num">${fmtN(r.waste_qty)}${r.purch_unit?' '+r.purch_unit:''}</td>
+          <td class="num">${fmtN(r.waste_qty)}${r.unit?' '+r.unit:''}</td>
           <td class="num"><b>${fmtB(r.waste_cost)}</b></td>
           <td class="num">${(+r.share_pct).toFixed(1)}%</td>
         </tr>`).join("")}
