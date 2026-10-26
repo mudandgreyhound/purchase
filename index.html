@@ -195,6 +195,7 @@
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
     <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
     <button class="tab" data-tab="supplier">ประเมินผู้ขาย</button>
+    <button class="tab" data-tab="anomaly">🔎 ตรวจสอบ</button>
   </div>
 
   <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
@@ -386,6 +387,7 @@ async function load(brand){
   if(currentTab==="outstanding") return loadOutstanding(brand);
   if(currentTab==="price") return loadPrice(brand);
   if(currentTab==="supplier") return loadSupplier(brand);
+  if(currentTab==="anomaly") return loadAnomaly(brand);
   return loadSummary(brand);
 }
 
@@ -1275,7 +1277,7 @@ function renderExec(app, k){
         <div class="ex-value">${fmtB(k.inv_value)}</div>
         <div class="ex-sub">Inventory Value · ${fmtN(k.inv_items)} รายการ${k.inv_as_of?' · ณ '+k.inv_as_of:''}
           ${k.inv_central!=null?`<br><span style="color:var(--muted)">คลังกลาง ${fmtB(k.inv_central)} · สาขา ${fmtB(k.inv_value-k.inv_central)}</span>`:''}
-          ${(k.inv_value_all!=null && k.inv_value_all > k.inv_value*1.005)?`<br><span style="color:var(--muted)">+ ZZ/ZF ค่าใช้จ่าย ${fmtB(k.inv_value_all-k.inv_value)}</span>`:''}</div>
+          ${(k.inv_value_all!=null && k.inv_value_all > k.inv_value*1.005)?`<br><span style="color:var(--c2)">ยอดค้าง ZZ/ZF ${fmtB(k.inv_value_all-k.inv_value)} · ค่าใช้จ่ายตัดตรง ไม่ใช่สต๊อกจริง</span>`:''}</div>
       </div>`:''}
       ${k.doi_days!=null?`
       <div class="exec-card">
@@ -1431,6 +1433,80 @@ async function openWasteDetail(brand){
           <td class="num"><b>${fmtB(r.waste_cost)}</b></td>
           <td class="num">${(+r.share_pct).toFixed(1)}%</td>
         </tr>`).join("")}
+      </tbody></table></div>`;
+  }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
+}
+
+// =============================================================================
+//  ANOMALY / ตรวจสอบความผิดปกติ — การ์ดรวม check + drill-down
+// =============================================================================
+const ANOM_LABEL = {
+  item_id:"รหัส", item_name:"ชื่อ", category:"หมวด", min_price:"ต่ำสุด", max_price:"สูงสุด",
+  ratio:"เท่า", lines:"ครั้ง", yr_month:"เดือน", waste_cost:"มูลค่าเสีย", waste_qty:"ปริมาณ",
+  value:"มูลค่า", po_count:"PO", qty:"คงเหลือ", std:"มาตรฐาน", avg_price:"จริง(เฉลี่ย)",
+  overpay:"จ่ายเกิน", vendor_acct:"รหัสซัพ", vendor_name:"ผู้ขาย", total:"ยอดรวม",
+  expense_val:"Expense", expense_pct:"Expense%", has_std:"มี std", has_unit:"มีหน่วย",
+  prev_price:"ราคาก่อน", latest_price:"ราคาล่าสุด", pct:"%เปลี่ยน",
+};
+const ANOM_MONEY = new Set(["min_price","max_price","waste_cost","value","std","avg_price",
+                            "overpay","total","expense_val","prev_price","latest_price"]);
+
+async function loadAnomaly(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังตรวจสอบ ${brand}…</div>`;
+  try{
+    const checks = await api(`/api/anomaly/summary?brand=${brand}${dp()}`);
+    app.innerHTML = `
+      <div class="panel" style="margin-bottom:14px">
+        <h2>ตรวจสอบความผิดปกติ (Data Quality)</h2>
+        <div style="font-size:13px;color:var(--ink-2)">คลิกการ์ดเพื่อดูรายการ · ${dateRange.from||dateRange.to?`${dateRange.from||'เริ่มต้น'} ถึง ${dateRange.to||'ปัจจุบัน'}`:'ทุกช่วงเวลา'}</div>
+      </div>
+      <div class="exec-grid">
+        ${checks.map(c=>`
+          <div class="exec-card ${(c.count>0)?'clickable-card':''}" data-check="${c.key}">
+            <div class="ex-label">${c.label} ${(c.count>0)?'<span style="font-weight:400;color:var(--muted);font-size:11px">คลิกดู ›</span>':''}</div>
+            <div class="ex-value" style="color:${c.count==null?'var(--muted)':c.count>0?'var(--c2)':'var(--c3)'}">
+              ${c.count==null?'—':fmtN(c.count)} <span style="font-size:13px;font-weight:400">${c.unit}</span></div>
+            <div class="ex-sub">${c.desc}${c.impact!=null?`<br><b style="color:var(--c4)">฿${fmtN(Math.round(c.impact))}</b> มูลค่าที่เกี่ยวข้อง`:''}${c.error?`<br><span style="color:var(--c5)">err: ${c.error}</span>`:''}</div>
+          </div>`).join("")}
+      </div>`;
+    checks.forEach(c=>{
+      if(c.count>0){
+        const el=app.querySelector(`[data-check="${c.key}"]`);
+        if(el) el.onclick=()=>openAnomalyDetail(brand, c.key, c.label);
+      }
+    });
+  }catch(e){ app.innerHTML = `<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
+}
+
+async function openAnomalyDetail(brand, check, label){
+  const bg=document.getElementById("modalBg");
+  document.getElementById("modalTitle").textContent = label;
+  document.getElementById("modalSub").textContent = "รายการที่ระบบ flag ว่าผิดปกติ · เรียงตามผลกระทบ";
+  const body=document.getElementById("modalBody");
+  body.innerHTML=`<div class="loading">กำลังโหลด…</div>`;
+  bg.classList.add("show");
+  try{
+    const rows=await api(`/api/anomaly/detail?check=${check}&brand=${brand}&limit=300${dp()}`);
+    if(!rows.length){ body.innerHTML=`<div style="color:var(--muted);padding:20px;text-align:center">ไม่พบความผิดปกติ 🎉</div>`; return; }
+    const cols=Object.keys(rows[0]);
+    body.innerHTML=`
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">${rows.length} รายการ</div>
+      <div style="overflow-x:auto"><table><thead><tr>
+        ${cols.map(k=>`<th class="${(ANOM_MONEY.has(k)||['ratio','lines','qty','po_count','pct','expense_pct','has_std','has_unit'].includes(k))?'num':''}">${ANOM_LABEL[k]||k}</th>`).join("")}
+      </tr></thead><tbody>
+      ${rows.map(r=>`<tr>${cols.map(k=>{
+        const v=r[k];
+        const isNum = typeof v==='number' || (!isNaN(parseFloat(v)) && isFinite(v) && v!=='');
+        const cls = (ANOM_MONEY.has(k)||['ratio','lines','qty','po_count','pct','expense_pct','has_std','has_unit'].includes(k))?'num':'';
+        let disp = v==null?'-' : ANOM_MONEY.has(k)?('฿'+fmtN(Math.round(+v))) : (isNum&&cls==='num')?fmtN(+v) : v;
+        if(k==='ratio') disp=(+v).toFixed(1)+'×';
+        if(k==='pct'||k==='expense_pct') disp=(+v).toFixed(1)+'%';
+        if(k==='has_std'||k==='has_unit') disp=(+v? '✓':'✗');
+        return `<td class="${cls}">${disp}</td>`;
+      }).join("")}</tr>`).join("")}
       </tbody></table></div>`;
   }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
 }
