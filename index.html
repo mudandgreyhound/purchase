@@ -1273,8 +1273,8 @@ function renderExec(app, k){
         <div class="ex-sub">Dead Stock · ${fmtN(k.overstock_items)} รายการ ไม่มีการใช้เลยใน 90 วัน${k.inv_central?' · '+(k.overstock_value/k.inv_central*100).toFixed(0)+'% ของคลังกลาง':''}</div>
       </div>`:''}
       ${k.waste_cost!=null?`
-      <div class="exec-card">
-        <div class="ex-label">มูลค่าของเสีย (Waste) <span style="font-weight:400;color:var(--muted);font-size:11px">ตามช่วงที่เลือก</span></div>
+      <div class="exec-card ${(k.waste_items||0)>0?'clickable-card':''}" id="wasteCard">
+        <div class="ex-label">มูลค่าของเสีย (Waste) <span style="font-weight:400;color:var(--muted);font-size:11px">ตามช่วงที่เลือก${(k.waste_items||0)>0?' · คลิกดูรายการ ›':''}</span></div>
         <div class="ex-value" style="color:${k.waste_pct!=null&&k.waste_pct>3?'var(--c4)':k.waste_pct!=null&&k.waste_pct>1?'var(--c2)':'var(--c3)'}">${fmtB(k.waste_cost)}</div>
         <div class="ex-sub">Waste Cost · journal "Issue Shop Waste"${k.waste_pct!=null?' · ~'+k.waste_pct.toFixed(1)+'% ของยอดซื้อ':''} · ${fmtN(k.waste_items)} รายการ</div>
       </div>`:''}
@@ -1292,6 +1292,8 @@ function renderExec(app, k){
   if(pc && pc.classList.contains("clickable-card")) pc.onclick=()=>openPpvDetail(lastBrand);
   const dc=document.getElementById("deadCard");
   if(dc && dc.classList.contains("clickable-card")) dc.onclick=()=>openDeadStock(lastBrand);
+  const wc=document.getElementById("wasteCard");
+  if(wc && wc.classList.contains("clickable-card")) wc.onclick=()=>openWasteDetail(lastBrand);
 }
 
 // drill-down: รายการสต๊อกไม่เคลื่อนไหว
@@ -1370,6 +1372,43 @@ async function openPpvDetail(brand){
           <td class="num">${(+r.share_pct).toFixed(1)}%</td>
         </tr>`;
       }).join("")}
+      </tbody></table></div>`;
+  }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
+}
+
+// drill-down: รายการของเสีย (Waste) ตามช่วงที่เลือก
+async function openWasteDetail(brand){
+  const bg=document.getElementById("modalBg");
+  document.getElementById("modalTitle").textContent="มูลค่าของเสีย (Waste) — รายการที่เสียมากสุด";
+  document.getElementById("modalSub").textContent="journal \"Issue Shop Waste\" · เฉพาะหมวด Goods · เรียงตามมูลค่าของเสียสูงสุด"+
+    ((dateRange.from||dateRange.to)?` · ${dateRange.from||'เริ่มต้น'} ถึง ${dateRange.to||'ปัจจุบัน'}`:" · ทุกช่วงเวลา");
+  const body=document.getElementById("modalBody");
+  body.innerHTML=`<div class="loading">กำลังโหลด…</div>`;
+  bg.classList.add("show");
+  try{
+    const rows=await api(`/api/exec/waste-detail?brand=${brand}&limit=1000${dp()}`);
+    if(!rows.length){ body.innerHTML=`<div style="color:var(--muted);padding:20px;text-align:center">ไม่มีรายการ 🎉</div>`; return; }
+    const tot=rows.reduce((a,r)=>a+(+r.waste_cost||0),0)||1;
+    const max=Math.max(...rows.map(r=>+r.waste_cost),1);
+    body.innerHTML=`
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">${rows.length} รายการ · รวม <b style="color:var(--ink)">${fmtB(tot)}</b></div>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>วัตถุดิบ</th><th>หมวด</th>
+        <th class="num">ปริมาณเสีย</th><th class="num">มูลค่าของเสีย</th><th class="num">%</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>`
+        <tr>
+          <td class="bar-cell" style="max-width:280px">
+            <span class="fill" style="width:${(+r.waste_cost/max*100).toFixed(0)}%;background:var(--c4)"></span>
+            <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:270px"
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+          </td>
+          <td>${r.item_group||'-'}</td>
+          <td class="num">${fmtN(r.waste_qty)}${r.purch_unit?' '+r.purch_unit:''}</td>
+          <td class="num"><b>${fmtB(r.waste_cost)}</b></td>
+          <td class="num">${(+r.share_pct).toFixed(1)}%</td>
+        </tr>`).join("")}
       </tbody></table></div>`;
   }catch(e){ body.innerHTML=`<div class="err">โหลดไม่ได้: ${e.message}</div>`; }
 }
