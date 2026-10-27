@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Purchase Summary — Mud & Hound Public Company Limited</title>
+<title>Purchase Summary — Greyhound Group</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root{
@@ -153,7 +153,7 @@
 <div class="gate" id="loginGate">
   <div class="gate-card">
     <h1>Purchase Dashboard</h1>
-    <div class="sub">Mud & Hound Public Company Limited Group · เข้าสู่ระบบ</div>
+    <div class="sub">Greyhound Group · เข้าสู่ระบบ</div>
     <form id="loginForm">
       <label>ชื่อผู้ใช้</label>
       <input type="text" id="loginUser" autocomplete="username" autofocus>
@@ -169,7 +169,7 @@
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Mud & Hound Public Company Limited</div>
+      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -181,8 +181,8 @@
         <button class="preset" data-preset="month">เดือนนี้</button>
         <button class="preset" data-preset="lastmonth">เดือนที่แล้ว</button>
         <button class="preset" data-preset="3m">3 เดือน</button>
-        <button class="preset" data-preset="year">ปีนี้</button>
-        <button class="preset active" data-preset="all">ทั้งหมด</button>
+        <button class="preset active" data-preset="year">ปีนี้</button>
+        <button class="preset" data-preset="all">ทั้งหมด</button>
       </span>
       <span id="userBox" style="display:none"></span>
       <button id="themeBtn" title="สลับโหมดสี">🌓</button>
@@ -199,6 +199,9 @@
   </div>
 
   <div id="app"><div class="loading">กำลังโหลดข้อมูล…</div></div>
+  <footer style="text-align:center;color:var(--muted);font-size:12px;padding:28px 0 20px;margin-top:20px;border-top:1px solid var(--border)">
+    © <script>document.write(new Date().getFullYear())</script> Mud &amp; Hound Public Company Limited. All Rights Reserved.
+  </footer>
 </div>
 
 <!-- modal drill-down: ผู้ขายรายนี้ซื้ออะไรบ้าง -->
@@ -374,6 +377,7 @@ async function initBrands(){
     const bs = await api("/api/brands");
     sel.innerHTML = bs.map(b=>`<option value="${b.brand_code}">${b.brand_name}</option>`).join("");
     sel.onchange = () => load(sel.value);
+    setPreset("year");                 // default = ปีนี้ (lastBrand ยังไม่เซ็ต → ไม่ double-load)
     load(sel.value || "GHC");
   }catch(e){
     document.getElementById("app").innerHTML =
@@ -1302,14 +1306,6 @@ function renderExec(app, k){
         <div class="ex-value" style="color:${k.waste_pct!=null&&k.waste_pct>3?'var(--c4)':k.waste_pct!=null&&k.waste_pct>1?'var(--c2)':'var(--c3)'}">${fmtB(k.waste_cost)}</div>
         <div class="ex-sub">Waste Cost · journal "Issue Shop Waste"${k.waste_pct!=null?' · ~'+k.waste_pct.toFixed(1)+'% ของยอดซื้อ':''} · ${fmtN(k.waste_items)} รายการ</div>
       </div>`:''}
-    </div>
-
-    <div class="panel" style="margin-top:18px">
-      <h2>KPI ที่ยังไม่เปิด (รอข้อมูลเพิ่ม)</h2>
-      <div class="roadmap">
-        <div class="rm-item"><b>งบประมาณ</b><span>Budget Utilization%</span><em>ไม่มีข้อมูลงบใน AX (ระบบไม่ได้ใส่ budget) — ทำไม่ได้</em></div>
-        <div class="rm-item"><b>บริการสาขา</b><span>Branch Fill Rate% · Distribution On-Time%</span><em>Waste ✓ แล้ว · เหลือรอข้อมูลใบเบิกสาขา/รอบส่ง</em></div>
-      </div>
     </div>`;
 
   const pc=document.getElementById("ppvCard");
