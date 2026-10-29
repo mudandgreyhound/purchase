@@ -54,6 +54,8 @@
     cursor:pointer;white-space:nowrap}
   .btn-export:hover{background:#0f5c39}
   .btn-export:disabled{opacity:.6;cursor:progress}
+  .fresh{display:inline-block;margin-left:8px;font-size:11px;color:var(--ink-2);
+    background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:1px 8px}
   /* tabs */
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border)}
   .tab{padding:8px 16px;border:none;background:none;color:var(--ink-2);cursor:pointer;
@@ -175,7 +177,8 @@
   <header>
     <div>
       <h1 id="pageTitle">Purchase Dashboard — จัดซื้อ</h1>
-      <div class="sub">Greyhound Group · ข้อมูลจาก AX 4.0 → MySQL</div>
+      <div class="sub">Mud &amp; Hound Public Company Limited · ข้อมูลจาก AX 4.0 → MySQL
+        <span id="dataFresh" class="fresh"></span></div>
     </div>
     <div class="toolbar">
       <select id="brandSel"></select>
@@ -404,6 +407,20 @@ async function exportExcel(){
 }
 document.getElementById("exportBtn").onclick = exportExcel;
 
+// ===== ป้ายข้อมูลอัพเดทล่าสุด (ต่อแบรนด์) =====
+async function refreshDataStamp(brand){
+  const el = document.getElementById("dataFresh");
+  if(!el) return;
+  try{
+    const u = await api("/api/meta/updated?brand=" + encodeURIComponent(brand));
+    const upd = u.as_of || u.last_receipt;
+    const thru = u.last_receipt || u.last_po;
+    el.textContent = upd
+      ? ("🕒 อัพเดทล่าสุด " + upd + (thru ? "  ·  ข้อมูลถึง " + String(thru).slice(0,10) : ""))
+      : "";
+  }catch(e){ el.textContent = ""; }
+}
+
 let lastBrand = null;
 
 async function initBrands(){
@@ -422,6 +439,7 @@ async function initBrands(){
 
 // dispatch ตามแท็บที่เลือก
 async function load(brand){
+  refreshDataStamp(brand);              // ป้ายอัพเดทล่าสุด (ไม่บล็อกการโหลดแท็บ)
   if(currentTab==="exec") return loadExec(brand);
   if(currentTab==="outstanding") return loadOutstanding(brand);
   if(currentTab==="price") return loadPrice(brand);
