@@ -48,6 +48,12 @@
     color:var(--ink-2);border:1px solid var(--border)}
   .preset.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .daterange .lbl{font-size:12px;color:var(--ink-2);font-weight:600}
+  /* export excel */
+  .btn-export{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:13px;
+    font-weight:700;color:#fff;background:#157347;border:1px solid #126c42;border-radius:10px;
+    cursor:pointer;white-space:nowrap}
+  .btn-export:hover{background:#0f5c39}
+  .btn-export:disabled{opacity:.6;cursor:progress}
   /* tabs */
   .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border)}
   .tab{padding:8px 16px;border:none;background:none;color:var(--ink-2);cursor:pointer;
@@ -184,6 +190,7 @@
         <button class="preset active" data-preset="year">ปีนี้</button>
         <button class="preset" data-preset="all">ทั้งหมด</button>
       </span>
+      <button id="exportBtn" class="btn-export" title="ออกรายงาน Excel ของแท็บนี้ (ตามแบรนด์+ช่วงวันที่ที่เลือก)">⬇ Excel</button>
       <span id="userBox" style="display:none"></span>
       <button id="themeBtn" title="สลับโหมดสี">🌓</button>
     </div>
@@ -368,6 +375,34 @@ async function apiSend(path, method, body){
   return api(path, {method, headers:{"Content-Type":"application/json"},
                     body: body!==undefined ? JSON.stringify(body) : undefined});
 }
+
+// ===== export Excel — ออกรายงานของแท็บปัจจุบัน (ตามแบรนด์+ช่วงวันที่) =====
+async function exportExcel(){
+  const btn = document.getElementById("exportBtn");
+  if(!lastBrand) return;
+  const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ กำลังสร้าง…";
+  try{
+    const url = API + "/api/export?tab=" + encodeURIComponent(currentTab)
+              + "&brand=" + encodeURIComponent(lastBrand) + dp();
+    const headers = {}; if(authToken) headers["Authorization"] = "Bearer "+authToken;
+    const r = await fetch(url, {headers});
+    if(r.status===401){ doLogout("หมดเวลาเข้าสู่ระบบ — กรุณาเข้าสู่ระบบใหม่"); return; }
+    if(!r.ok){ let m=r.status; try{const j=await r.json(); if(j&&j.detail) m=j.detail;}catch(e){} throw new Error(m); }
+    const blob = await r.blob();
+    let fname = "Purchase_"+currentTab+"_"+lastBrand+".xlsx";
+    const cd = r.headers.get("Content-Disposition");
+    if(cd){ const mm = cd.match(/filename="?([^"]+)"?/); if(mm) fname = mm[1]; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = fname;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }catch(e){
+    alert("ออกรายงานไม่สำเร็จ: " + e.message);
+  }finally{
+    btn.disabled = false; btn.innerHTML = old;
+  }
+}
+document.getElementById("exportBtn").onclick = exportExcel;
 
 let lastBrand = null;
 
