@@ -506,7 +506,7 @@ async function loadSummary(brand){
       api(`/api/summary/mom?brand=${brand}`),
       api(`/api/summary/monthly?brand=${brand}${dp()}&gran=${granFor(curPreset)}`),
       api(`/api/summary/by-category?brand=${brand}${dp()}`),
-      api(`/api/summary/by-supplier?brand=${brand}&limit=15${dp()}`),
+      api(`/api/summary/by-supplier?brand=${brand}&limit=20${dp()}`),
       api(`/api/summary/by-location?brand=${brand}${dp()}`),
       api(`/api/summary/category-detail?brand=${brand}${dp()}`),
       api(`/api/summary/supplier-sku?brand=${brand}&limit=15${dp()}`),
@@ -550,7 +550,7 @@ function render(app, d){
 
     <div class="grid two" style="margin-top:16px">
       <div class="panel">
-        <h2>Top 15 Supplier (ยอดซื้อสูงสุด)</h2>
+        <h2>Top 20 Supplier (ยอดซื้อสูงสุด)</h2>
         <table><thead><tr>
           <th>Supplier</th><th class="num">ยอดซื้อ</th><th class="num">PO</th>
         </tr></thead><tbody id="supBody"></tbody></table>
