@@ -283,13 +283,20 @@ document.getElementById("themeBtn").onclick = () => {
 try{const t=localStorage.getItem("pa-theme"); if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}
 
 // ===== tab switching =====
+function activateTab(tabName){
+  document.querySelectorAll(".tab").forEach(b=>
+    b.classList.toggle("active", b.dataset.tab===tabName));
+  currentTab = tabName;
+  const sel = document.getElementById("brandSel");
+  // "ทุกแบรนด์" (ALL) ใช้ได้เฉพาะแท็บสรุป — ออกไปแท็บอื่นให้กลับไปแบรนด์จริงตัวแรก
+  if(tabName !== "summary" && sel && sel.value === "ALL"){
+    sel.value = firstBrand;
+  }
+  const b = (sel && sel.value) || lastBrand || firstBrand;
+  if(b) load(b);
+}
 document.querySelectorAll(".tab").forEach(btn=>{
-  btn.onclick = () => {
-    document.querySelectorAll(".tab").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-    currentTab = btn.dataset.tab;
-    if(lastBrand) load(lastBrand);
-  };
+  btn.onclick = () => activateTab(btn.dataset.tab);
 });
 
 // ===== date range (global) =====
@@ -383,6 +390,10 @@ async function apiSend(path, method, body){
 async function exportExcel(){
   const btn = document.getElementById("exportBtn");
   if(!lastBrand) return;
+  if(lastBrand === "ALL"){
+    alert("การออกรายงาน Excel รองรับเฉพาะรายแบรนด์\nกรุณาเลือกแบรนด์ที่ต้องการก่อน (มุมมอง \"ทุกแบรนด์รวมกัน\" เป็นภาพรวมบนหน้าจอเท่านั้น)");
+    return;
+  }
   const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ กำลังสร้าง…";
   try{
     const url = API + "/api/export?tab=" + encodeURIComponent(currentTab)
@@ -422,12 +433,20 @@ async function refreshDataStamp(brand){
 }
 
 let lastBrand = null;
+let allowedBrands = [];     // รหัสแบรนด์ที่ user มีสิทธิ์ (ไว้ fallback เวลาออกจาก ALL)
+let firstBrand = "GHC";     // แบรนด์เริ่มต้น (ตัวแรกที่มีสิทธิ์)
 
 async function initBrands(){
   const sel = document.getElementById("brandSel");
   try{
     const bs = await api("/api/brands");
-    sel.innerHTML = bs.map(b=>`<option value="${b.brand_code}">${b.brand_name}</option>`).join("");
+    allowedBrands = bs.map(b=>b.brand_code);
+    firstBrand = allowedBrands[0] || "GHC";
+    let opts = bs.map(b=>`<option value="${b.brand_code}">${b.brand_name}</option>`).join("");
+    // "ทุกแบรนด์รวมกัน" — ใช้ได้เฉพาะแท็บสรุปยอดจัดซื้อ (แสดงเมื่อมีสิทธิ์ ≥ 2 แบรนด์)
+    if(bs.length > 1) opts = `<option value="ALL">🌐 ทุกแบรนด์รวมกัน</option>` + opts;
+    sel.innerHTML = opts;
+    sel.value = firstBrand;            // default = แบรนด์จริง ไม่ใช่ ALL (แท็บเริ่มต้นคือภาพรวมผู้บริหาร)
     sel.onchange = () => load(sel.value);
     setPreset("year");                 // default = ปีนี้ (lastBrand ยังไม่เซ็ต → ไม่ double-load)
     load(sel.value || "GHC");
@@ -439,6 +458,11 @@ async function initBrands(){
 
 // dispatch ตามแท็บที่เลือก
 async function load(brand){
+  // "ทุกแบรนด์" (ALL) รองรับเฉพาะแท็บสรุปยอดจัดซื้อ → ถ้าอยู่แท็บอื่นให้สลับไปแท็บสรุปอัตโนมัติ
+  if(brand === "ALL" && currentTab !== "summary"){
+    activateTab("summary");             // activateTab จะเรียก load เองต่อ
+    return;
+  }
   refreshDataStamp(brand);              // ป้ายอัพเดทล่าสุด (ไม่บล็อกการโหลดแท็บ)
   if(currentTab==="exec") return loadExec(brand);
   if(currentTab==="outstanding") return loadOutstanding(brand);
@@ -455,7 +479,7 @@ async function loadSummary(brand){
   const app = document.getElementById("app");
   app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
   try{
-    const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku] = await Promise.all([
+    const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku, prods] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}${dp()}`),
       api(`/api/summary/mom?brand=${brand}`),
       api(`/api/summary/monthly?brand=${brand}${dp()}&gran=${granFor(curPreset)}`),
@@ -464,8 +488,10 @@ async function loadSummary(brand){
       api(`/api/summary/by-location?brand=${brand}${dp()}`),
       api(`/api/summary/category-detail?brand=${brand}${dp()}`),
       api(`/api/summary/supplier-sku?brand=${brand}&limit=15${dp()}`),
+      // Top 20 products — ทนทานต่อ backend รุ่นเก่าที่ยังไม่มี endpoint นี้ (fail → ข้าม ไม่ล้มทั้งหน้า)
+      api(`/api/summary/by-product?brand=${brand}&limit=20${dp()}`).catch(()=>[]),
     ]);
-    render(app, {kpi, mom, monthly, cats, sups, locs, catDetail, supSku});
+    render(app, {kpi, mom, monthly, cats, sups, locs, catDetail, supSku, prods});
   }catch(e){
     app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
   }
@@ -516,6 +542,18 @@ function render(app, d){
     </div>
 
     <div class="panel" style="margin-top:16px">
+      <h2>Top 20 สินค้า/วัตถุดิบ (ยอดซื้อสูงสุด)
+        <span style="font-weight:400;font-size:11px;color:var(--muted);margin-left:6px">รวมทุก Supplier · เรียงตามมูลค่าซื้อ</span>
+      </h2>
+      <div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>#</th><th>สินค้า / วัตถุดิบ</th><th>หมวด</th>
+        <th class="num">ยอดซื้อ</th><th class="num">จำนวน</th><th class="num">PO</th>
+      </tr></thead><tbody id="prodBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
       <h2>มูลค่าซื้อแยกตามหมวดวัตถุดิบ (รายละเอียดทุกหมวด)</h2>
       <div style="overflow-x:auto">
       <table><thead><tr>
@@ -540,8 +578,42 @@ function render(app, d){
   drawCategory(d.cats);
   fillLocations(d.locs);
   fillSuppliers(d.sups);
+  fillProducts(d.prods);
   fillCatDetail(d.catDetail);
   fillSupplierSku(d.supSku);
+}
+
+// Top 20 สินค้า/วัตถุดิบ — ใน "ทุกแบรนด์" (ALL) จะโชว์ป้ายแบรนด์หน้าชื่อสินค้า
+function fillProducts(rows){
+  const body = document.getElementById("prodBody");
+  if(!body) return;
+  if(!rows || !rows.length){
+    body.innerHTML = `<tr><td colspan="6" style="color:var(--muted)">ไม่มีข้อมูลสินค้าในช่วงที่เลือก</td></tr>`;
+    return;
+  }
+  const isAll = (lastBrand === "ALL");
+  const max = Math.max(...rows.map(r=>+r.purchase_amount), 1);
+  const esc = s => String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  body.innerHTML = rows.map((r,i)=>{
+    const unit = r.purch_unit ? ` <span style="color:var(--muted);font-size:11px">${esc(r.purch_unit)}</span>` : '';
+    const brandTag = isAll
+      ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--c1);color:#fff;border-radius:4px;padding:1px 5px;margin-right:6px">${esc(r.brand_code)}</span>`
+      : '';
+    const name = esc(r.item_name) || `<span style="color:var(--muted)">${esc(r.item_id)}</span>`;
+    return `
+    <tr>
+      <td class="num" style="color:var(--muted)">${i+1}</td>
+      <td class="bar-cell">
+        <span class="fill" style="width:${(+r.purchase_amount/max*100).toFixed(0)}%"></span>
+        <span style="position:relative">${brandTag}${name}
+          <span style="color:var(--muted);font-size:11px">· ${esc(r.item_id)}</span></span>
+      </td>
+      <td>${esc(r.category)||'-'}</td>
+      <td class="num">${fmtB(r.purchase_amount)}</td>
+      <td class="num">${fmtN(r.qty)}${unit}</td>
+      <td class="num">${fmtN(r.po_count)}</td>
+    </tr>`;
+  }).join("");
 }
 
 const gridColor = () => getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
