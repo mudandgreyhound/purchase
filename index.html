@@ -269,8 +269,29 @@ const CAT = ["--c1","--c2","--c3","--c4","--c5"].map(v=>
 const fmtB = n => "฿" + Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
 const fmtN = n => Number(n||0).toLocaleString("th-TH",{maximumFractionDigits:0});
 let charts = {};
+let allFallbackDone = false;
+// ถ้าโหลดมุมมอง "ทุกแบรนด์รวมกัน" (ALL) ไม่สำเร็จ (เช่น backend ยังไม่รองรับ/deploy ไม่พร้อมกัน)
+// → สลับไปแบรนด์จริงตัวแรกอัตโนมัติ (ครั้งเดียว) กัน landing พังตอน default = ALL
+function handleLoadError(app, brand, e){
+  if(brand === "ALL" && !allFallbackDone){
+    allFallbackDone = true;
+    const sel = document.getElementById("brandSel");
+    if(sel) sel.value = firstBrand;
+    load(firstBrand);
+    return;
+  }
+  app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+}
+// ป้ายรหัสแบรนด์ (โชว์เฉพาะมุมมอง "ทุกแบรนด์รวมกัน" และเมื่อแถวมี brand_code)
+function bBadge(code){
+  return (lastBrand==="ALL" && code)
+    ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--c1);color:#fff;border-radius:4px;padding:1px 5px;margin-right:5px">${code}</span>`
+    : '';
+}
 
 let currentTab = "exec";
+// แท็บที่รองรับมุมมอง "ทุกแบรนด์รวมกัน" (ALL)
+const ALL_TABS = ["exec","summary"];
 
 // ===== theme toggle =====
 document.getElementById("themeBtn").onclick = () => {
@@ -288,8 +309,8 @@ function activateTab(tabName){
     b.classList.toggle("active", b.dataset.tab===tabName));
   currentTab = tabName;
   const sel = document.getElementById("brandSel");
-  // "ทุกแบรนด์" (ALL) ใช้ได้เฉพาะแท็บสรุป — ออกไปแท็บอื่นให้กลับไปแบรนด์จริงตัวแรก
-  if(tabName !== "summary" && sel && sel.value === "ALL"){
+  // "ทุกแบรนด์" (ALL) ใช้ได้เฉพาะแท็บภาพรวม/สรุป — ออกไปแท็บอื่นให้กลับไปแบรนด์จริงตัวแรก
+  if(!ALL_TABS.includes(tabName) && sel && sel.value === "ALL"){
     sel.value = firstBrand;
   }
   const b = (sel && sel.value) || lastBrand || firstBrand;
@@ -443,10 +464,11 @@ async function initBrands(){
     allowedBrands = bs.map(b=>b.brand_code);
     firstBrand = allowedBrands[0] || "GHC";
     let opts = bs.map(b=>`<option value="${b.brand_code}">${b.brand_name}</option>`).join("");
-    // "ทุกแบรนด์รวมกัน" — ใช้ได้เฉพาะแท็บสรุปยอดจัดซื้อ (แสดงเมื่อมีสิทธิ์ ≥ 2 แบรนด์)
-    if(bs.length > 1) opts = `<option value="ALL">🌐 ทุกแบรนด์รวมกัน</option>` + opts;
+    // "ทุกแบรนด์รวมกัน" — ใช้ได้บนแท็บภาพรวมผู้บริหาร/สรุป (แสดงเมื่อมีสิทธิ์ ≥ 2 แบรนด์)
+    const hasAll = bs.length > 1;
+    if(hasAll) opts = `<option value="ALL">🌐 ทุกแบรนด์รวมกัน</option>` + opts;
     sel.innerHTML = opts;
-    sel.value = firstBrand;            // default = แบรนด์จริง ไม่ใช่ ALL (แท็บเริ่มต้นคือภาพรวมผู้บริหาร)
+    sel.value = hasAll ? "ALL" : firstBrand;   // default = ทุกแบรนด์รวมกัน (ถ้ามีสิทธิ์หลายแบรนด์)
     sel.onchange = () => load(sel.value);
     setPreset("year");                 // default = ปีนี้ (lastBrand ยังไม่เซ็ต → ไม่ double-load)
     load(sel.value || "GHC");
@@ -458,9 +480,9 @@ async function initBrands(){
 
 // dispatch ตามแท็บที่เลือก
 async function load(brand){
-  // "ทุกแบรนด์" (ALL) รองรับเฉพาะแท็บสรุปยอดจัดซื้อ → ถ้าอยู่แท็บอื่นให้สลับไปแท็บสรุปอัตโนมัติ
-  if(brand === "ALL" && currentTab !== "summary"){
-    activateTab("summary");             // activateTab จะเรียก load เองต่อ
+  // "ทุกแบรนด์" (ALL) รองรับเฉพาะแท็บภาพรวมผู้บริหาร/สรุป → แท็บอื่นสลับไปภาพรวมผู้บริหารอัตโนมัติ
+  if(brand === "ALL" && !ALL_TABS.includes(currentTab)){
+    activateTab("exec");                // activateTab จะเรียก load เองต่อ
     return;
   }
   refreshDataStamp(brand);              // ป้ายอัพเดทล่าสุด (ไม่บล็อกการโหลดแท็บ)
@@ -477,7 +499,7 @@ async function loadSummary(brand){
   catDrill = null;
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
-  app.innerHTML = `<div class="loading">กำลังโหลด ${brand}…</div>`;
+  app.innerHTML = `<div class="loading">กำลังโหลด ${brand==="ALL"?"ทุกแบรนด์":brand}…</div>`;
   try{
     const [kpi, mom, monthly, cats, sups, locs, catDetail, supSku, prods] = await Promise.all([
       api(`/api/summary/kpi?brand=${brand}${dp()}`),
@@ -493,7 +515,7 @@ async function loadSummary(brand){
     ]);
     render(app, {kpi, mom, monthly, cats, sups, locs, catDetail, supSku, prods});
   }catch(e){
-    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+    handleLoadError(app, brand, e);
   }
 }
 
@@ -799,7 +821,7 @@ async function openSupplierItems(brand, acct, name){
           <td class="bar-cell" style="max-width:260px">
             <span class="fill" style="width:${(+r.amount/max*100).toFixed(0)}%"></span>
             <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:250px"
-                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${bBadge(r.brand_code)}${r.item_id} ${r.item_name||''}</span>
           </td>
           <td><span class="badge ${CAT_BADGE2[r.category]||'ok'}">${r.category||'-'}</span></td>
           <td class="num">${fmtB(r.amount)}</td>
@@ -876,7 +898,7 @@ async function loadOutstanding(brand){
     ]);
     renderOutstanding(app, {kpi, aging, sups, locs, list});
   }catch(e){
-    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+    handleLoadError(app, brand, e);
   }
 }
 
@@ -1045,7 +1067,7 @@ async function loadPrice(brand){
     ]);
     renderPrice(app, {brand, changes, summary, groups});
   }catch(e){
-    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+    handleLoadError(app, brand, e);
   }
 }
 
@@ -1216,7 +1238,7 @@ async function loadSupplier(brand){
     ]);
     renderSupplier(app, {brand, kpi, perf});
   }catch(e){
-    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+    handleLoadError(app, brand, e);
   }
 }
 
@@ -1361,12 +1383,12 @@ async function loadExec(brand){
   lastBrand = brand;
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
-  app.innerHTML = `<div class="loading">กำลังโหลด KPI ${brand}…</div>`;
+  app.innerHTML = `<div class="loading">กำลังโหลด KPI ${brand==="ALL"?"ทุกแบรนด์":brand}…</div>`;
   try{
     const k = await api(`/api/exec/kpi?brand=${brand}${dp()}`);
     renderExec(app, k);
   }catch(e){
-    app.innerHTML = `<div class="err">โหลดข้อมูลไม่ได้: ${e.message}</div>`;
+    handleLoadError(app, brand, e);
   }
 }
 
@@ -1466,7 +1488,7 @@ async function openDeadStock(brand){
           <td class="bar-cell" style="max-width:260px">
             <span class="fill" style="width:${(+r.oh_val/max*100).toFixed(0)}%;background:var(--c2)"></span>
             <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:250px"
-                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${bBadge(r.brand_code)}${r.item_id} ${r.item_name||''}</span>
           </td>
           <td>${r.item_group||'-'}</td>
           <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.locs||'').replace(/"/g,'&quot;')}">${r.locs||'-'}</td>
@@ -1506,7 +1528,7 @@ async function openPpvDetail(brand){
           <td class="bar-cell" style="max-width:240px">
             <span class="fill" style="width:${(Math.abs(v)/maxv*100).toFixed(0)}%;background:${up?'var(--c4)':'var(--c3)'}"></span>
             <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:230px"
-                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${bBadge(r.brand_code)}${r.item_id} ${r.item_name||''}</span>
           </td>
           <td>${r.item_group||'-'}</td>
           <td class="num">฿${fmtP(r.std_price)}</td>
@@ -1547,7 +1569,7 @@ async function openWasteDetail(brand){
           <td class="bar-cell" style="max-width:280px">
             <span class="fill" style="width:${(+r.waste_cost/max*100).toFixed(0)}%;background:var(--c4)"></span>
             <span style="position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:270px"
-                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${r.item_id} ${r.item_name||''}</span>
+                  title="${(r.item_name||'').replace(/"/g,'&quot;')}">${bBadge(r.brand_code)}${r.item_id} ${r.item_name||''}</span>
           </td>
           <td>${r.item_group||'-'}</td>
           <td class="num">${fmtN(r.waste_qty)}${r.unit?' '+r.unit:''}</td>
