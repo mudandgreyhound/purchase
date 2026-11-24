@@ -202,7 +202,7 @@
 
   <div class="tabs">
     <button class="tab active" data-tab="exec">ภาพรวมผู้บริหาร</button>
-    <button class="tab" data-tab="prpo">PR → PO</button>
+    <button class="tab" data-tab="prpo">PR ↔ PO</button>
     <button class="tab" data-tab="summary">สรุปยอดจัดซื้อ</button>
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
     <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
@@ -1601,8 +1601,8 @@ const ANOM_MONEY = new Set(["min_price","max_price","waste_cost","value","std","
                             "loss","unit_cost","recv_unit_cost","cnt_unit_cost","net_cost"]);
 
 // =====================================================================
-//  PR → PO  (PR ที่อนุมัติแล้ว ถูกดึงไปเปิด PO หรือยัง — AX 4.0 GHC/ABP/MUD/DD/GS)
-//  ข้อมูล: /api/prpo/* (ETL 07_etl_pr_po.py ทุกวัน 06:00) · กรองตามวันที่สร้าง PR
+//  PR ↔ PO  (PR ที่อนุมัติแล้ว ถูกดึงไปเปิด PO หรือยัง + PO ที่ไม่มี PR — AX 4.0 GHC/ABP/MUD/DD/GS)
+//  ข้อมูล: /api/prpo/* (ETL 07_etl_pr_po.py ทุกวัน 06:00) · ส่วน PR กรองตามวันที่สร้าง PR · ส่วน "ที่มาของ PO" กรองตามวันที่สร้าง PO
 // =====================================================================
 const PRPO_ST = {
   full:         ["เปิด PO ครบ",   "background:var(--c3);color:#fff"],
@@ -1619,7 +1619,7 @@ async function loadPrpo(brand){
   lastBrand = brand;
   Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
   const app = document.getElementById("app");
-  app.innerHTML = `<div class="loading">กำลังโหลด PR → PO ${brand==="ALL"?"ทุกแบรนด์":brand}…</div>`;
+  app.innerHTML = `<div class="loading">กำลังโหลด PR ↔ PO ${brand==="ALL"?"ทุกแบรนด์":brand}…</div>`;
   try{
     const [k, mon, grp, price] = await Promise.all([
       api(`/api/prpo/kpi?brand=${brand}${dp()}`),
@@ -1627,7 +1627,9 @@ async function loadPrpo(brand){
       api(`/api/prpo/by-group?brand=${brand}${dp()}`),
       api(`/api/prpo/price?brand=${brand}${dp()}&limit=50`),
     ]);
-    renderPrpo(app, k, mon, grp, price);
+    // แยกโหลด — ถ้า API ยังไม่มี endpoint นี้ ส่วนอื่นยังแสดงได้
+    const nopr = await api(`/api/prpo/nopr?brand=${brand}${dp()}`).catch(()=>null);
+    renderPrpo(app, k, mon, grp, price, nopr);
     loadPrpoList(brand);
   }catch(e){
     if(String(e.message).includes("404")){
@@ -1637,7 +1639,7 @@ async function loadPrpo(brand){
   }
 }
 
-function renderPrpo(app, k, mon, grp, price){
+function renderPrpo(app, k, mon, grp, price, nopr){
   const pct = (a,b) => b ? (a/b*100).toFixed(1)+"%" : "—";
   const diff = (+k.po_amount) - (+k.matched_pr_amount);   // เทียบเฉพาะบรรทัดที่เจอ PO (po_missing ไม่มียอด PO)
   const ps = price.summary || {};
@@ -1669,6 +1671,7 @@ function renderPrpo(app, k, mon, grp, price){
         <div class="value">${fmtN(k.price_changed_lines)} <span class="unit">บรรทัด</span></div>
         <div class="sub">แพงขึ้น ${fmtN(ps.up_lines)} · ถูกลง ${fmtN(ps.down_lines)} · ผลต่าง ${impact>0?"+":""}${fmtB(impact)}</div></div>
     </div>
+${prpoNoprHtml(nopr)}
 
     <div class="grid two" style="margin-top:16px">
       <div class="panel">
@@ -1731,6 +1734,7 @@ function renderPrpo(app, k, mon, grp, price){
       "PO ถูกยกเลิก" = ดึง PR ไปเปิด PO แล้วแต่บรรทัด PO ถูกยกเลิก · "ปิด/ยกเลิก PR" = PR ที่ AX ทำเครื่องหมายปิด (ECL_CLOSE) โดยไม่ได้เปิด PO</div>`;
 
   drawPrpoMonthly(mon);
+  if(nopr && nopr.monthly && nopr.monthly.length) drawPrpoNopr(nopr.monthly);
   const sel = document.getElementById("prpoStatusSel");
   sel.value = prpoStatus;
   sel.onchange = () => { prpoStatus = sel.value; loadPrpoList(lastBrand); };
@@ -1751,6 +1755,72 @@ function drawPrpoMonthly(rows){
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color: inkColor(), boxWidth: 12 } },
         tooltip: { callbacks: { label: c => " " + c.dataset.label + ": " + fmtB(c.parsed.y) } } },
+      scales: { x: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor() } },
+        y: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor(), callback: v => "฿" + (v/1e6).toFixed(1) + "M" } } } }
+  });
+}
+
+// ---- ที่มาของ PO: มาจาก PR / จัดซื้อไม่มี PR / สาขาสั่งตรง (PO-SH) — ยอดรวม + สัดส่วน (กรองตามวันที่สร้าง PO) ----
+const PRPO_SRC = [
+  ["from_pr",    "มาจาก PR",              "--c3", "PO ที่ดึงจาก PR ที่อนุมัติแล้ว"],
+  ["purch_nopr", "จัดซื้อเปิดตรง ไม่มี PR", "--c2", "PO จัดซื้อ (PO-HD/HO/FZ…) ที่ไม่ได้อ้างอิง PR"],
+  ["shop",       "สาขาสั่งตรง (PO-SH)",    "--c1", "สาขาสั่งจาก CM POS — ไม่ผ่าน PR ตามระบบ"],
+];
+const prpoShare = v => v==null ? "—" : (+v).toFixed(1) + "%";
+
+function prpoNoprHtml(n){
+  const head = `<h2>ที่มาของ PO — PO ที่ไม่มี PR</h2>`;
+  if(!n) return `<div class="panel" style="margin-top:16px">${head}
+      <div class="sub">ยังโหลดส่วนนี้ไม่ได้ (API ยังไม่อัปเดต — รอ restart purchase-api)</div></div>`;
+  const t = n.total || {};
+  if(!(+t.po_count)) return `<div class="panel" style="margin-top:16px">${head}
+      <div class="sub">ไม่มี PO ในช่วงวันที่นี้ (ข้อมูลมีเฉพาะ AX 4.0: GHC, ABP, MUD, DD, GS)</div></div>`;
+  const cnt = {from_pr: +t.from_pr_count + (+t.mixed_count), purch_nopr: +t.purch_nopr_count, shop: +t.shop_count};
+  const bar = PRPO_SRC.map(([key,,c]) => {
+    const w = +t[key+"_share"] || 0;
+    return w > 0 ? `<div title="${prpoShare(w)}" style="width:${w}%;background:var(${c})"></div>` : "";
+  }).join("");
+  const tiles = PRPO_SRC.map(([key, label, c, desc]) => `
+      <div class="kpi"><div class="label"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(${c});margin-right:6px"></span>${label}</div>
+        <div class="value" style="color:var(${c})">${prpoShare(t[key+"_share"])}</div>
+        <div class="sub">${fmtB(t[key+"_amount"])} · ${fmtN(cnt[key])} ใบ</div>
+        <div class="sub" style="font-size:11px">${desc}</div></div>`).join("");
+  const rows = (n.monthly||[]).map(m => `<tr><td style="white-space:nowrap">${prpoEsc(m.yr_mth)}</td>
+      <td class="num">${fmtB(m.po_amount)}</td>
+      ${PRPO_SRC.map(([key]) => `<td class="num">${fmtB(m[key+"_amount"])}<div class="sub" style="font-size:11px">${prpoShare(m[key+"_share"])}</div></td>`).join("")}
+    </tr>`).join("");
+  return `
+    <div class="panel" style="margin-top:16px">
+      ${head}
+      <div class="sub" style="margin-bottom:10px">ยอด PO ทั้งหมด <b>${fmtB(t.po_amount)}</b> (${fmtN(t.po_count)} ใบ, ไม่นับบรรทัดที่ยกเลิก)
+        แยกตามว่ามาจาก PR หรือไม่ · กรองตาม<b>วันที่สร้าง PO</b>${+t.mixed_count ? ` · ${fmtN(t.mixed_count)} ใบมี PR แค่บางบรรทัด — ส่วนที่ไม่มี PR นับใน "จัดซื้อเปิดตรง"` : ""}</div>
+      <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--surface-2);margin-bottom:12px">${bar}</div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">PO ทั้งหมด</div><div class="value">${fmtB(t.po_amount)}</div>
+          <div class="sub">${fmtN(t.po_count)} ใบ</div></div>
+        ${tiles}
+      </div>
+      <div class="grid two" style="margin-top:12px">
+        <div><div class="chart-box" style="height:280px"><canvas id="prpoNoprChart"></canvas></div></div>
+        <div class="prpo-scroll" style="overflow:auto;max-height:300px">
+          <table><thead><tr><th>เดือน</th><th class="num">PO ทั้งหมด</th><th class="num">มาจาก PR</th>
+            <th class="num">จัดซื้อไม่มี PR</th><th class="num">สาขา PO-SH</th></tr></thead>
+            <tbody>${rows}</tbody></table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function drawPrpoNopr(rows){
+  const cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  charts.prpoNopr = new Chart(document.getElementById("prpoNoprChart"), {
+    type: "bar",
+    data: { labels: rows.map(r=>r.yr_mth),
+      datasets: PRPO_SRC.map(([key, label, c]) => ({label, data: rows.map(r=>+r[key+"_amount"]||0),
+        share: rows.map(r=>r[key+"_share"]), backgroundColor: cv(c), stack: "s", borderRadius: 3})) },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: inkColor(), boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => " " + c.dataset.label + ": " + fmtB(c.parsed.y) + " (" + prpoShare(c.dataset.share[c.dataIndex]) + ")" } } },
       scales: { x: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor() } },
         y: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor(), callback: v => "฿" + (v/1e6).toFixed(1) + "M" } } } }
   });
