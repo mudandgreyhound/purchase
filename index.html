@@ -1649,7 +1649,11 @@ function renderPrpo(app, k, mon, grp, price, nopr){
       <div class="value" ${color?`style="color:${color}"`:""}>${fmtN(count)} <span class="unit">ใบ</span></div>
       <div class="sub">${fmtB(amount)}${sub?" · "+sub:""}</div></div>`;
   const none = !(+k.pr_count);
-  app.innerHTML = (none ? `<div class="panel" style="margin-bottom:12px;color:var(--ink-2)">ไม่มี PR ที่อนุมัติแล้วในช่วงวันที่นี้
+  app.innerHTML = prpoNoprHtml(nopr) + `
+    <div style="margin:24px 0 12px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="font-size:16px;font-weight:700">PR ที่อนุมัติแล้ว → เปิด PO หรือยัง</div>
+      <div class="sub" style="font-size:12px;color:var(--ink-2)">กรองตามวันที่สร้าง PR (ส่วนภาพรวม PO ด้านบนกรองตามวันที่สร้าง PO)</div></div>` +
+    (none ? `<div class="panel" style="margin-bottom:12px;color:var(--ink-2)">ไม่มี PR ที่อนุมัติแล้วในช่วงวันที่นี้
       (ระบบ PR อนุมัติมีเฉพาะบริษัทที่ใช้ AX 4.0: GHC, ABP, MUD, DD, GS — GHF ใช้ AX 6.3 จึงไม่มีข้อมูลหน้านี้)</div>` : "") + `
     <div class="kpis">
       ${kpi("PR อนุมัติแล้ว", k.pr_count, k.pr_amount, "", fmtN(k.line_count)+" บรรทัด")}
@@ -1671,7 +1675,6 @@ function renderPrpo(app, k, mon, grp, price, nopr){
         <div class="value">${fmtN(k.price_changed_lines)} <span class="unit">บรรทัด</span></div>
         <div class="sub">แพงขึ้น ${fmtN(ps.up_lines)} · ถูกลง ${fmtN(ps.down_lines)} · ผลต่าง ${impact>0?"+":""}${fmtB(impact)}</div></div>
     </div>
-${prpoNoprHtml(nopr)}
 
     <div class="grid two" style="margin-top:16px">
       <div class="panel">
@@ -1770,11 +1773,11 @@ const PRPO_SRC = [
 const prpoShare = v => v==null ? "—" : (+v).toFixed(1) + "%";
 
 function prpoNoprHtml(n){
-  const head = `<h2>ที่มาของ PO — PO ที่ไม่มี PR</h2>`;
-  if(!n) return `<div class="panel" style="margin-top:16px">${head}
+  const head = `<h2>ภาพรวม PO ทั้งหมด — มาจาก PR / ไม่มี PR</h2>`;
+  if(!n) return `<div class="panel">${head}
       <div class="sub">ยังโหลดส่วนนี้ไม่ได้ (API ยังไม่อัปเดต — รอ restart purchase-api)</div></div>`;
   const t = n.total || {};
-  if(!(+t.po_count)) return `<div class="panel" style="margin-top:16px">${head}
+  if(!(+t.po_count)) return `<div class="panel">${head}
       <div class="sub">ไม่มี PO ในช่วงวันที่นี้ (ข้อมูลมีเฉพาะ AX 4.0: GHC, ABP, MUD, DD, GS)</div></div>`;
   const cnt = {from_pr: +t.from_pr_count + (+t.mixed_count), purch_nopr: +t.purch_nopr_count, shop: +t.shop_count};
   const bar = PRPO_SRC.map(([key,,c]) => {
@@ -1791,7 +1794,7 @@ function prpoNoprHtml(n){
       ${PRPO_SRC.map(([key]) => `<td class="num">${fmtB(m[key+"_amount"])}<div class="sub" style="font-size:11px">${prpoShare(m[key+"_share"])}</div></td>`).join("")}
     </tr>`).join("");
   return `
-    <div class="panel" style="margin-top:16px">
+    <div class="panel">
       ${head}
       <div class="sub" style="margin-bottom:10px">ยอด PO ทั้งหมด <b>${fmtB(t.po_amount)}</b> (${fmtN(t.po_count)} ใบ, ไม่นับบรรทัดที่ยกเลิก)
         แยกตามว่ามาจาก PR หรือไม่ · กรองตาม<b>วันที่สร้าง PO</b>${+t.mixed_count ? ` · ${fmtN(t.mixed_count)} ใบมี PR แค่บางบรรทัด — ส่วนที่ไม่มี PR นับใน "จัดซื้อเปิดตรง"` : ""}</div>
