@@ -63,6 +63,7 @@
   .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
   /* overdue badge */
   .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .prpo-scroll thead th{position:sticky;top:0;background:var(--surface);z-index:1}
   .badge.over{background:var(--c4);color:#fff}
   .badge.soon{background:var(--c2);color:#fff}
   .badge.ok{background:var(--surface-2);color:var(--ink-2)}
@@ -201,6 +202,7 @@
 
   <div class="tabs">
     <button class="tab active" data-tab="exec">ภาพรวมผู้บริหาร</button>
+    <button class="tab" data-tab="prpo">PR → PO</button>
     <button class="tab" data-tab="summary">สรุปยอดจัดซื้อ</button>
     <button class="tab" data-tab="outstanding">PO ค้างรับ</button>
     <button class="tab" data-tab="price">วิเคราะห์ราคา</button>
@@ -291,7 +293,7 @@ function bBadge(code){
 
 let currentTab = "exec";
 // แท็บที่รองรับมุมมอง "ทุกแบรนด์รวมกัน" (ALL)
-const ALL_TABS = ["exec","summary"];
+const ALL_TABS = ["exec","prpo","summary"];
 
 // ===== theme toggle =====
 document.getElementById("themeBtn").onclick = () => {
@@ -487,6 +489,7 @@ async function load(brand){
   }
   refreshDataStamp(brand);              // ป้ายอัพเดทล่าสุด (ไม่บล็อกการโหลดแท็บ)
   if(currentTab==="exec") return loadExec(brand);
+  if(currentTab==="prpo") return loadPrpo(brand);
   if(currentTab==="outstanding") return loadOutstanding(brand);
   if(currentTab==="price") return loadPrice(brand);
   if(currentTab==="supplier") return loadSupplier(brand);
@@ -1596,6 +1599,187 @@ const ANOM_LABEL = {
 const ANOM_MONEY = new Set(["min_price","max_price","waste_cost","value","std","avg_price",
                             "overpay","total","expense_val","prev_price","latest_price",
                             "loss","unit_cost","recv_unit_cost","cnt_unit_cost","net_cost"]);
+
+// =====================================================================
+//  PR → PO  (PR ที่อนุมัติแล้ว ถูกดึงไปเปิด PO หรือยัง — AX 4.0 GHC/ABP/MUD/DD/GS)
+//  ข้อมูล: /api/prpo/* (ETL 07_etl_pr_po.py ทุกวัน 06:00) · กรองตามวันที่สร้าง PR
+// =====================================================================
+const PRPO_ST = {
+  full:         ["เปิด PO ครบ",   "background:var(--c3);color:#fff"],
+  partial:      ["เปิดบางส่วน",   "background:var(--c2);color:#fff"],
+  waiting:      ["รอเปิด PO",     "background:var(--c4);color:#fff"],
+  po_cancelled: ["PO ถูกยกเลิก",  "background:var(--c5);color:#fff"],
+  closed:       ["ปิด/ยกเลิก PR", "background:var(--surface-2);color:var(--ink-2)"],
+};
+const prpoEsc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const prpoBadge = st => { const x = PRPO_ST[st] || [st, ""]; return `<span class="badge" style="${x[1]}">${x[0]}</span>`; };
+let prpoStatus = "open";
+
+async function loadPrpo(brand){
+  lastBrand = brand;
+  Object.values(charts).forEach(c=>c&&c.destroy()); charts={};
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading">กำลังโหลด PR → PO ${brand==="ALL"?"ทุกแบรนด์":brand}…</div>`;
+  try{
+    const [k, mon, grp, price] = await Promise.all([
+      api(`/api/prpo/kpi?brand=${brand}${dp()}`),
+      api(`/api/prpo/monthly?brand=${brand}${dp()}`),
+      api(`/api/prpo/by-group?brand=${brand}${dp()}`),
+      api(`/api/prpo/price?brand=${brand}${dp()}&limit=50`),
+    ]);
+    renderPrpo(app, k, mon, grp, price);
+    loadPrpoList(brand);
+  }catch(e){
+    if(String(e.message).includes("404")){
+      app.innerHTML = `<div class="err">แบรนด์นี้ไม่มีระบบ PR อนุมัติใน AX 4.0 (เช่น GHF ที่ใช้ AX 6.3)</div>`; return;
+    }
+    handleLoadError(app, brand, e);
+  }
+}
+
+function renderPrpo(app, k, mon, grp, price){
+  const pct = (a,b) => b ? (a/b*100).toFixed(1)+"%" : "—";
+  const diff = (+k.po_amount) - (+k.matched_pr_amount);   // เทียบเฉพาะบรรทัดที่เจอ PO (po_missing ไม่มียอด PO)
+  const ps = price.summary || {};
+  const impact = +ps.impact || 0;
+  const kpi = (label, count, amount, color, sub) => `
+    <div class="kpi"><div class="label">${label}</div>
+      <div class="value" ${color?`style="color:${color}"`:""}>${fmtN(count)} <span class="unit">ใบ</span></div>
+      <div class="sub">${fmtB(amount)}${sub?" · "+sub:""}</div></div>`;
+  const none = !(+k.pr_count);
+  app.innerHTML = (none ? `<div class="panel" style="margin-bottom:12px;color:var(--ink-2)">ไม่มี PR ที่อนุมัติแล้วในช่วงวันที่นี้
+      (ระบบ PR อนุมัติมีเฉพาะบริษัทที่ใช้ AX 4.0: GHC, ABP, MUD, DD, GS — GHF ใช้ AX 6.3 จึงไม่มีข้อมูลหน้านี้)</div>` : "") + `
+    <div class="kpis">
+      ${kpi("PR อนุมัติแล้ว", k.pr_count, k.pr_amount, "", fmtN(k.line_count)+" บรรทัด")}
+      ${kpi("เปิด PO ครบแล้ว", k.full_count, k.full_amount, "var(--c3)", pct(+k.full_amount, +k.pr_amount))}
+      ${kpi("เปิดบางส่วน", k.partial_count, k.partial_amount, "var(--c2)", "ค้าง "+fmtB(k.partial_open_amount))}
+      ${kpi("รอเปิด PO", k.waiting_count, k.waiting_amount, "var(--c4)", "")}
+      ${kpi("PO ถูกยกเลิก", k.cancelled_count, k.cancelled_amount, "var(--c5)", "เคยเปิดแล้วยกเลิก")}
+      ${kpi("ปิด/ยกเลิก PR", k.closed_count, k.closed_amount, "var(--muted)", "ไม่ได้เปิด PO")}
+    </div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="label">ยอด PR ส่วนที่เปิด PO แล้ว</div>
+        <div class="value">${fmtB(k.converted_pr_amount)}</div><div class="sub">ราคาตาม PR ที่อนุมัติ</div></div>
+      <div class="kpi"><div class="label">ยอด PO ที่เปิดจริง</div>
+        <div class="value">${fmtB(k.po_amount)}</div><div class="sub">ไม่รวม PO ที่ถูกยกเลิก</div></div>
+      <div class="kpi"><div class="label">PO − PR (บรรทัดที่เจอ PO)</div>
+        <div class="value" style="color:${diff>0?"var(--c4)":"var(--c3)"}">${diff>0?"+":""}${fmtB(diff)}</div>
+        <div class="sub">${fmtN(k.qty_changed_lines)} บรรทัดแก้จำนวน · ${fmtN(k.po_missing_lines)} บรรทัดหา PO ไม่เจอ</div></div>
+      <div class="kpi"><div class="label">ราคา PO ต่างจาก PR</div>
+        <div class="value">${fmtN(k.price_changed_lines)} <span class="unit">บรรทัด</span></div>
+        <div class="sub">แพงขึ้น ${fmtN(ps.up_lines)} · ถูกลง ${fmtN(ps.down_lines)} · ผลต่าง ${impact>0?"+":""}${fmtB(impact)}</div></div>
+    </div>
+
+    <div class="grid two" style="margin-top:16px">
+      <div class="panel">
+        <h2>รายเดือน (ตามเดือนที่เปิด PR)</h2>
+        <div class="chart-box" style="height:280px"><canvas id="prpoMonChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>แยกตามสายอนุมัติ (แผนก)</h2>
+        <div style="overflow:auto;max-height:300px">
+        <table><thead><tr><th>สายอนุมัติ</th><th class="num">PR</th><th class="num">ยอด PR</th>
+          <th class="num">ยอด PO</th><th class="num">ยังไม่เปิด</th></tr></thead>
+          <tbody>${grp.map(g=>`<tr>
+            <td><b>${prpoEsc(g.header_group||"-")}</b><div class="sub" style="font-size:11px">${prpoEsc(g.group_name)}</div></td>
+            <td class="num">${fmtN(g.pr_count)}</td><td class="num">${fmtB(g.pr_amount)}</td>
+            <td class="num">${fmtB(g.po_amount)}</td>
+            <td class="num" style="${+g.open_amount>0?"color:var(--c4);font-weight:600":""}">${fmtB(g.open_amount)}</td></tr>`).join("")
+            || `<tr><td colspan="5" style="color:var(--muted)">ไม่มีข้อมูล</td></tr>`}</tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">รายการ PR
+        <select id="prpoStatusSel" style="padding:4px 8px;font-size:12px">
+          <option value="open">ยังไม่ครบ (รอเปิด + บางส่วน + PO ยกเลิก)</option>
+          <option value="waiting">รอเปิด PO</option><option value="partial">เปิดบางส่วน</option>
+          <option value="po_cancelled">PO ถูกยกเลิก</option><option value="closed">ปิด/ยกเลิก PR</option>
+          <option value="full">เปิด PO ครบ</option><option value="all">ทั้งหมด</option>
+        </select>
+        <span id="prpoListInfo" class="sub" style="font-weight:400"></span></h2>
+      <div class="prpo-scroll" style="overflow:auto;max-height:560px">
+      <table><thead><tr><th>PR</th><th>วันที่</th><th>สายอนุมัติ</th><th>คลัง/สาขา</th><th>ผู้ขาย</th>
+        <th class="num">บรรทัด</th><th class="num">ยอด PR</th><th class="num">ยอด PO</th><th class="num">ยังไม่เปิด</th>
+        <th>เลข PO</th><th class="num">อายุ</th><th>สถานะ</th></tr></thead>
+        <tbody id="prpoListBody"><tr><td colspan="12" class="loading">กำลังโหลด…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>เทียบราคา PR vs PO รายสินค้า</h2>
+      <div class="sub" style="margin-bottom:8px">เฉพาะบรรทัดที่เปิด PO แล้วและหน่วยเดียวกัน · ราคา/หน่วย = ยอด ÷ จำนวน ·
+        ผลต่าง = ยอด PO − (ราคา PR × จำนวน PO) · เรียงตามผลต่างมากสุด · รวม ${fmtN(ps.n_lines)} บรรทัด:
+        แพงขึ้น ${fmtN(ps.up_lines)} · ถูกลง ${fmtN(ps.down_lines)} ·
+        ผลต่างสุทธิ <b style="color:${impact>0?"var(--c4)":"var(--c3)"}">${impact>0?"+":""}${fmtB(impact)}</b></div>
+      <div class="prpo-scroll" style="overflow:auto;max-height:520px">
+      <table><thead><tr><th>สินค้า</th><th>หน่วย</th><th class="num">บรรทัด</th><th class="num">ราคา PR</th>
+        <th class="num">ราคา PO</th><th class="num">ต่าง %</th><th class="num">จำนวน PO</th><th class="num">ผลต่าง (บาท)</th></tr></thead>
+        <tbody>${(price.items||[]).map(it=>{
+          const up = (+it.diff_pct||0) > 0;
+          return `<tr><td>${bBadge(it.brand_code)}${prpoEsc(it.item_name)}<div class="sub" style="font-size:11px">${prpoEsc(it.item_id)}</div></td>
+            <td>${prpoEsc(it.unit||"")}</td><td class="num">${fmtN(it.n_lines)}</td>
+            <td class="num">${fmtP(it.pr_price)}</td><td class="num">${fmtP(it.po_price)}</td>
+            <td class="num"><span class="badge" style="${up?"background:var(--c4);color:#fff":"background:var(--c3);color:#fff"}">${up?"▲":"▼"} ${Math.abs(+it.diff_pct||0).toFixed(1)}%</span></td>
+            <td class="num">${fmtN(it.po_qty)}</td>
+            <td class="num" style="color:${+it.impact>0?"var(--c4)":"var(--c3)"};font-weight:600">${+it.impact>0?"+":""}${fmtB(it.impact)}</td></tr>`;
+        }).join("") || `<tr><td colspan="8" style="color:var(--muted)">ไม่มีบรรทัดที่ราคาต่างกัน</td></tr>`}</tbody></table>
+      </div>
+    </div>
+    <div class="sub" style="margin-top:10px;font-size:12px">ข้อมูลโหลดล่าสุด ${prpoEsc(String(k.loaded_at||"").replace("T"," ").slice(0,16))} ·
+      "PO ถูกยกเลิก" = ดึง PR ไปเปิด PO แล้วแต่บรรทัด PO ถูกยกเลิก · "ปิด/ยกเลิก PR" = PR ที่ AX ทำเครื่องหมายปิด (ECL_CLOSE) โดยไม่ได้เปิด PO</div>`;
+
+  drawPrpoMonthly(mon);
+  const sel = document.getElementById("prpoStatusSel");
+  sel.value = prpoStatus;
+  sel.onchange = () => { prpoStatus = sel.value; loadPrpoList(lastBrand); };
+}
+
+function drawPrpoMonthly(rows){
+  const cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const ds = (label, key, color) => ({label, data: rows.map(r=>+r[key]||0), backgroundColor: color, stack: "s", borderRadius: 3});
+  charts.prpoMon = new Chart(document.getElementById("prpoMonChart"), {
+    type: "bar",
+    data: { labels: rows.map(r=>r.yr_mth),
+      datasets: [ ds("เปิด PO แล้ว", "converted_pr_amount", cv("--c3")),
+                  ds("รอเปิด PO", "waiting_amount", cv("--c4")),
+                  ds("PO ถูกยกเลิก", "cancelled_amount", cv("--c5")),
+                  ds("ปิด/ยกเลิก PR", "closed_amount", cv("--muted")),
+                  {type: "line", label: "ยอด PO จริง", data: rows.map(r=>+r.po_amount||0), borderColor: cv("--c1"),
+                   backgroundColor: cv("--c1"), borderWidth: 2, pointRadius: 2, tension: .25} ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: inkColor(), boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => " " + c.dataset.label + ": " + fmtB(c.parsed.y) } } },
+      scales: { x: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor() } },
+        y: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor(), callback: v => "฿" + (v/1e6).toFixed(1) + "M" } } } }
+  });
+}
+
+async function loadPrpoList(brand){
+  const body = document.getElementById("prpoListBody");
+  const info = document.getElementById("prpoListInfo");
+  if(!body) return;
+  body.innerHTML = `<tr><td colspan="12" class="loading">กำลังโหลด…</td></tr>`;
+  try{
+    const rows = await api(`/api/prpo/list?brand=${brand}${dp()}&status=${prpoStatus}&limit=500`);
+    if(info) info.textContent = rows.length >= 500 ? "แสดง 500 ใบแรก (เรียงจาก PR เก่าสุด)" : `${fmtN(rows.length)} ใบ (เรียงจาก PR เก่าสุด)`;
+    body.innerHTML = rows.map(r=>`<tr>
+      <td style="white-space:nowrap">${bBadge(r.brand_code)}<b>${prpoEsc(r.pr_id)}</b></td>
+      <td style="white-space:nowrap">${prpoEsc(String(r.pr_date||"").slice(0,10))}</td>
+      <td>${prpoEsc(r.header_group||"-")}</td>
+      <td>${prpoEsc(r.location_name || r.invent_location || "-")}</td>
+      <td>${prpoEsc(r.vendor_name || r.vendor_acct || "-")}</td>
+      <td class="num">${fmtN(r.converted_lines)}/${fmtN(r.line_count)}</td>
+      <td class="num">${fmtB(r.pr_amount)}</td><td class="num">${fmtB(r.po_amount)}</td>
+      <td class="num" style="${+r.open_amount>0?"color:var(--c4);font-weight:600":""}">${fmtB(r.open_amount)}</td>
+      <td style="font-size:12px">${prpoEsc(r.po_ids||"—")}</td>
+      <td class="num">${fmtN(r.age_days)} วัน</td><td>${prpoBadge(r.pr_status)}</td></tr>`).join("")
+      || `<tr><td colspan="12" style="color:var(--muted)">ไม่มี PR ในสถานะนี้</td></tr>`;
+  }catch(e){
+    body.innerHTML = `<tr><td colspan="12" class="err">โหลดรายการไม่ได้: ${prpoEsc(e.message)}</td></tr>`;
+  }
+}
 
 async function loadAnomaly(brand){
   lastBrand = brand;
