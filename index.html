@@ -1655,7 +1655,7 @@ function renderPrpo(app, k, mon, grp, price, nopr){
       ${kpi("PR อนุมัติแล้ว", k.pr_count, k.pr_amount, "", fmtN(k.line_count)+" บรรทัด")}
       ${kpi("เปิด PO ครบแล้ว", k.full_count, k.full_amount, "var(--c3)", pct(+k.full_amount, +k.pr_amount))}
       ${kpi("เปิดบางส่วน", k.partial_count, k.partial_amount, "var(--c2)", "ค้าง "+fmtB(k.partial_open_amount))}
-      ${kpi("รอเปิด PO", k.waiting_count, k.waiting_amount, "var(--c4)", "")}
+      ${kpi("รอเปิด PO", k.waiting_count, k.waiting_amount, "var(--c4)", "อนุมัติแล้ว ยังไม่ดึงไป PO")}
       ${kpi("PO ถูกยกเลิก", k.cancelled_count, k.cancelled_amount, "var(--c5)", "เคยเปิดแล้วยกเลิก")}
       ${kpi("ปิด/ยกเลิก PR", k.closed_count, k.closed_amount, "var(--muted)", "ไม่ได้เปิด PO")}
     </div>
@@ -1731,7 +1731,8 @@ ${prpoNoprHtml(nopr)}
       </div>
     </div>
     <div class="sub" style="margin-top:10px;font-size:12px">ข้อมูลโหลดล่าสุด ${prpoEsc(String(k.loaded_at||"").replace("T"," ").slice(0,16))} ·
-      "PO ถูกยกเลิก" = ดึง PR ไปเปิด PO แล้วแต่บรรทัด PO ถูกยกเลิก · "ปิด/ยกเลิก PR" = PR ที่ AX ทำเครื่องหมายปิด (ECL_CLOSE) โดยไม่ได้เปิด PO</div>`;
+      "รอเปิด PO" = PR Status ใน AX เป็น Approved แต่ยังไม่ถูกดึงไปเปิด PO (ดูอายุในรายการ PR) ·
+      "PO ถูกยกเลิก" = ดึง PR ไปเปิด PO แล้วแต่บรรทัด PO ถูกยกเลิก · "ปิด/ยกเลิก PR" = PR ถูกปิด/ยกเลิกหลังอนุมัติโดยไม่ได้เปิด PO</div>`;
 
   drawPrpoMonthly(mon);
   if(nopr && nopr.monthly && nopr.monthly.length) drawPrpoNopr(nopr.monthly);
