@@ -1855,9 +1855,11 @@ function prpoPoPanelsHtml(){
         <select id="prpoPoSortSel" style="padding:4px 8px;font-size:12px">
           <option value="date">ล่าสุดก่อน</option><option value="amount">ยอดมากสุดก่อน</option>
         </select>
-        <span id="prpoPoInfo" class="sub" style="font-weight:400"></span></h2>
+        <span id="prpoPoInfo" class="sub" style="font-weight:400"></span>
+        <button id="prpoPoXlsBtn" class="btn-export" style="margin-left:auto;padding:5px 12px;font-size:12px">⬇ Excel รายละเอียด PO</button></h2>
+      <div class="sub" style="margin:-6px 0 8px;font-size:12px">กดเลข PO เพื่อดูรายบรรทัด · Excel = ทุกบรรทัดของ PO ตามตัวกรองที่เลือก (แบบไฟล์รายละเอียด PO)</div>
       <div class="prpo-scroll" style="overflow:auto;max-height:560px">
-      <table><thead><tr><th>PO</th><th>วันที่</th><th>ที่มา</th><th>ผู้ขาย</th><th>คลัง/สาขา</th><th>สายอนุมัติ</th>
+      <table><thead><tr><th>PO</th><th>วันที่</th><th>ที่มา</th><th>ผู้ขาย</th><th>สาขา/แผนก (Dimension)</th><th>สายอนุมัติ</th>
         <th class="num">บรรทัด</th><th class="num">ยอด PO</th><th>เลข PR</th></tr></thead>
         <tbody id="prpoPoBody"><tr><td colspan="9" class="loading">กำลังโหลด…</td></tr></tbody></table>
       </div>
@@ -1886,6 +1888,7 @@ function bindPrpoPo(){
   s1.onchange = () => { prpoPoSrc = s1.value; loadPrpoPoList(lastBrand); };
   s2.onchange = () => { prpoPoSort = s2.value; loadPrpoPoList(lastBrand); };
   s3.onchange = () => { prpoPpSrc = s3.value; loadPrpoPoPrice(lastBrand); };
+  const xb = document.getElementById("prpoPoXlsBtn"); if(xb) xb.onclick = () => exportPrpoLines(xb);
   loadPrpoPoList(lastBrand); loadPrpoPoPrice(lastBrand);
 }
 
@@ -1900,18 +1903,85 @@ async function loadPrpoPoList(brand){
     const rows = d.rows || [];
     if(info) info.textContent = `${fmtN(d.total)} ใบ · ${fmtB(d.total_amount)}` + (d.total > rows.length ? ` (แสดง ${fmtN(rows.length)} ใบ${prpoPoSort==="amount"?"ยอดสูงสุด":"ล่าสุด"})` : "");
     body.innerHTML = rows.map(r=>`<tr>
-      <td style="white-space:nowrap">${bBadge(r.brand_code)}<b>${prpoEsc(r.po_id)}</b></td>
+      <td style="white-space:nowrap">${bBadge(r.brand_code)}<a href="#" class="prpo-po-link" data-brand="${prpoEsc(r.brand_code)}" data-po="${prpoEsc(r.po_id)}"
+          style="font-weight:700;color:var(--c1);text-decoration:none">▸ ${prpoEsc(r.po_id)}</a></td>
       <td style="white-space:nowrap">${prpoEsc(String(r.po_date||"").slice(0,10))}</td>
       <td>${prpoSrcBadge(r.src)}</td>
       <td>${prpoEsc(r.vendor_name || r.vendor_acct || "-")}</td>
-      <td>${prpoEsc(r.location_name || r.invent_location || "-")}</td>
+      <td>${r.dimension ? `<span style="white-space:nowrap">${prpoEsc(r.dimension)}</span> <span class="sub">${prpoEsc(r.dimension_name||"")}</span>${+r.dim_count>1?` <span class="badge" style="background:var(--surface-2);color:var(--ink-2)">+${+r.dim_count-1}</span>`:""}` : "-"}</td>
       <td>${prpoEsc(r.header_group || "-")}</td>
       <td class="num">${r.src==="mixed" ? fmtN(r.pr_lines)+"/" : ""}${fmtN(r.line_count)}</td>
       <td class="num">${fmtB(r.po_amount)}</td>
       <td style="font-size:12px">${prpoEsc(r.pr_ids || "—")}</td></tr>`).join("")
       || `<tr><td colspan="9" style="color:var(--muted)">ไม่มี PO ในกลุ่มนี้</td></tr>`;
+    body.querySelectorAll(".prpo-po-link").forEach(a => a.onclick = ev => { ev.preventDefault(); togglePrpoPoLines(a); });
   }catch(e){
     body.innerHTML = `<tr><td colspan="9" class="err">${prpoOldApi(e)}</td></tr>`;
+  }
+}
+
+// กดเลข PO → แสดง/ซ่อนรายบรรทัดใต้แถวนั้น
+async function togglePrpoPoLines(a){
+  const tr = a.closest("tr"), nx = tr.nextElementSibling;
+  if(nx && nx.classList.contains("prpo-lines-row")){ nx.remove(); a.textContent = "▸ " + a.dataset.po; return; }
+  a.textContent = "▾ " + a.dataset.po;
+  const row = document.createElement("tr"); row.className = "prpo-lines-row";
+  row.innerHTML = `<td colspan="9" style="background:var(--surface-2);padding:8px 12px"><div class="loading">กำลังโหลดบรรทัด…</div></td>`;
+  tr.after(row);
+  try{
+    const ls = await api(`/api/prpo/po-lines?brand=${encodeURIComponent(a.dataset.brand)}&po_id=${encodeURIComponent(a.dataset.po)}`);
+    const tot = ls.reduce((t,l)=>t + (+l.counted_amount||0), 0);
+    row.firstElementChild.innerHTML = `
+      <table style="font-size:12px;background:var(--surface)"><thead><tr><th>#</th><th>Dimension</th><th>รหัสสินค้า</th><th>สินค้า / บริการ</th>
+        <th>ประเภท</th><th>สถานะ AX</th><th>เลข PR ต้นทาง</th><th>สายอนุมัติ (DOA)</th><th class="num">จำนวน</th><th>หน่วย</th>
+        <th class="num">ยอด (บาท)</th><th>นับ</th><th>รหัสบรรทัด AX</th></tr></thead><tbody>
+      ${ls.map((l,i)=>`<tr style="${l.counted!=="นับ"?"color:var(--muted)":""}">
+        <td>${l.line_recid?i+1:"—"}</td>
+        <td style="white-space:nowrap">${prpoEsc(l.dimension||"-")}<div class="sub" style="font-size:11px">${prpoEsc(l.dimension_name||"")}</div></td>
+        <td style="white-space:nowrap">${prpoEsc(l.item_id||"")}</td>
+        <td style="max-width:360px;white-space:pre-line">${prpoEsc(l.line_text||"")}</td>
+        <td style="white-space:nowrap">${prpoEsc(l.category||"")}<div class="sub" style="font-size:11px">${prpoEsc(l.item_group||"")}</div></td>
+        <td style="white-space:nowrap">${prpoEsc(l.status_ax)}</td>
+        <td style="white-space:nowrap">${prpoEsc(l.pr_id||"—")}</td>
+        <td>${prpoEsc(l.pr_group_name||"")}</td>
+        <td class="num">${l.line_recid?fmtN(l.qty):""}</td><td>${prpoEsc(l.unit||"")}</td>
+        <td class="num">${l.line_recid?fmtP(l.line_amount):""}</td>
+        <td style="white-space:nowrap">${prpoEsc(l.counted)}</td>
+        <td style="font-size:11px">${prpoEsc(l.line_recid_txt)}</td></tr>`).join("")}
+      </tbody></table>
+      <div class="sub" style="margin-top:4px;font-size:12px">${fmtN(ls.filter(l=>l.line_recid).length)} บรรทัด · ยอดที่นับ ${fmtP(tot)} บาท</div>`;
+  }catch(e){
+    row.firstElementChild.innerHTML = `<div class="err">${prpoOldApi(e)}</div>`;
+  }
+}
+
+// Excel รายละเอียด PO รายบรรทัด (ตามแบรนด์ + ช่วงวันที่ + ที่มาที่เลือก)
+async function exportPrpoLines(btn){
+  if(!lastBrand) return;
+  if(lastBrand === "ALL"){
+    alert("Excel รายละเอียด PO รองรับเฉพาะรายแบรนด์\nกรุณาเลือกแบรนด์ก่อน");
+    return;
+  }
+  const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = "⏳ กำลังสร้าง…";
+  try{
+    const url = API + "/api/export?tab=prpo_lines&brand=" + encodeURIComponent(lastBrand) + dp()
+              + "&src=" + encodeURIComponent(prpoPoSrc);
+    const headers = {}; if(authToken) headers["Authorization"] = "Bearer "+authToken;
+    const r = await fetch(url, {headers});
+    if(r.status===401){ doLogout("หมดเวลาเข้าสู่ระบบ — กรุณาเข้าสู่ระบบใหม่"); return; }
+    if(!r.ok){ let m=r.status; try{const j=await r.json(); if(j&&j.detail) m=j.detail;}catch(e){} throw new Error(m); }
+    const blob = await r.blob();
+    let fname = "Purchase_prpo_lines_"+lastBrand+".xlsx";
+    const cd = r.headers.get("Content-Disposition");
+    if(cd){ const mm = cd.match(/filename="?([^"]+)"?/); if(mm) fname = mm[1]; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = fname;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }catch(e){
+    alert("ออกรายงานไม่สำเร็จ: " + (/404|ไม่รู้จักแท็บ/i.test(String(e.message)) ? "API ยังไม่อัปเดต — รอ restart purchase-api" : e.message));
+  }finally{
+    btn.disabled = false; btn.innerHTML = old;
   }
 }
 
