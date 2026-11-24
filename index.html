@@ -1649,7 +1649,8 @@ function renderPrpo(app, k, mon, grp, price, nopr){
       <div class="value" ${color?`style="color:${color}"`:""}>${fmtN(count)} <span class="unit">ใบ</span></div>
       <div class="sub">${fmtB(amount)}${sub?" · "+sub:""}</div></div>`;
   const none = !(+k.pr_count);
-  app.innerHTML = prpoNoprHtml(nopr) + `
+  const showPo = !!(nopr && nopr.total && +nopr.total.po_count);
+  app.innerHTML = prpoNoprHtml(nopr) + (showPo ? prpoPoPanelsHtml() : "") + `
     <div style="margin:24px 0 12px;padding-top:16px;border-top:1px solid var(--border)">
       <div style="font-size:16px;font-weight:700">PR ที่อนุมัติแล้ว → เปิด PO หรือยัง</div>
       <div class="sub" style="font-size:12px;color:var(--ink-2)">กรองตามวันที่สร้าง PR (ส่วนภาพรวม PO ด้านบนกรองตามวันที่สร้าง PO)</div></div>` +
@@ -1739,6 +1740,7 @@ function renderPrpo(app, k, mon, grp, price, nopr){
 
   drawPrpoMonthly(mon);
   if(nopr && nopr.monthly && nopr.monthly.length) drawPrpoNopr(nopr.monthly);
+  if(showPo) bindPrpoPo();
   const sel = document.getElementById("prpoStatusSel");
   sel.value = prpoStatus;
   sel.onchange = () => { prpoStatus = sel.value; loadPrpoList(lastBrand); };
@@ -1828,6 +1830,121 @@ function drawPrpoNopr(rows){
       scales: { x: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor() } },
         y: { stacked: true, grid: { color: gridColor() }, ticks: { color: inkColor(), callback: v => "฿" + (v/1e6).toFixed(1) + "M" } } } }
   });
+}
+
+// ---- รายการ PO ทั้งหมด + ราคา PO เทียบราคาซื้อครั้งก่อน (โหลดแยกหลังหน้าแสดงแล้ว) ----
+const PRPO_SRC_BADGE = {
+  from_pr:    ["มาจาก PR",     "--c3"],
+  mixed:      ["PR บางบรรทัด", "--c5"],
+  purch_nopr: ["ไม่มี PR",     "--c2"],
+  shop:       ["PO-SH",        "--c1"],
+};
+const prpoSrcBadge = k => { const x = PRPO_SRC_BADGE[k] || [k, "--muted"];
+  return `<span class="badge" style="background:var(${x[1]});color:#fff;white-space:nowrap">${x[0]}</span>`; };
+let prpoPoSrc = "all", prpoPoSort = "date", prpoPpSrc = "all";
+
+function prpoPoPanelsHtml(){
+  return `
+    <div class="panel" style="margin-top:16px">
+      <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">รายการ PO
+        <select id="prpoPoSrcSel" style="padding:4px 8px;font-size:12px">
+          <option value="all">ทั้งหมด</option><option value="from_pr">มาจาก PR</option>
+          <option value="mixed">มี PR บางบรรทัด</option><option value="purch_nopr">จัดซื้อเปิดตรง ไม่มี PR</option>
+          <option value="shop">สาขาสั่งตรง (PO-SH)</option>
+        </select>
+        <select id="prpoPoSortSel" style="padding:4px 8px;font-size:12px">
+          <option value="date">ล่าสุดก่อน</option><option value="amount">ยอดมากสุดก่อน</option>
+        </select>
+        <span id="prpoPoInfo" class="sub" style="font-weight:400"></span></h2>
+      <div class="prpo-scroll" style="overflow:auto;max-height:560px">
+      <table><thead><tr><th>PO</th><th>วันที่</th><th>ที่มา</th><th>ผู้ขาย</th><th>คลัง/สาขา</th><th>สายอนุมัติ</th>
+        <th class="num">บรรทัด</th><th class="num">ยอด PO</th><th>เลข PR</th></tr></thead>
+        <tbody id="prpoPoBody"><tr><td colspan="9" class="loading">กำลังโหลด…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">ราคา PO เทียบราคาซื้อครั้งก่อน
+        <select id="prpoPpSrcSel" style="padding:4px 8px;font-size:12px">
+          <option value="all">ทุกที่มา</option><option value="from_pr">มาจาก PR</option>
+          <option value="purch_nopr">จัดซื้อเปิดตรง ไม่มี PR</option><option value="shop">สาขาสั่งตรง (PO-SH)</option>
+        </select></h2>
+      <div class="sub" style="margin-bottom:10px">ทุกบรรทัด PO เทียบกับราคาที่ซื้อสินค้า+หน่วยเดียวกันครั้งก่อน · เฉพาะสินค้า (Goods)
+        ไม่รวมรหัสค่าใช้จ่าย/Capex · ผลต่าง = ยอด PO − (ราคาครั้งก่อน × จำนวน) · บรรทัดที่ราคาต่างเกิน 5 เท่า (มักหน่วยผิด) ไม่นับ</div>
+      <div id="prpoPpTiles" class="kpis"><div class="loading">กำลังโหลด…</div></div>
+      <div class="prpo-scroll" style="overflow:auto;max-height:520px;margin-top:12px">
+      <table><thead><tr><th>สินค้า</th><th>ที่มา</th><th>หน่วย</th><th class="num">บรรทัด</th><th class="num">ราคาครั้งก่อน</th>
+        <th class="num">ราคา PO</th><th class="num">ต่าง %</th><th class="num">จำนวน</th><th class="num">ผลต่าง (บาท)</th></tr></thead>
+        <tbody id="prpoPpBody"><tr><td colspan="9" class="loading">กำลังโหลด…</td></tr></tbody></table>
+      </div>
+    </div>`;
+}
+
+function bindPrpoPo(){
+  const s1 = document.getElementById("prpoPoSrcSel"), s2 = document.getElementById("prpoPoSortSel"), s3 = document.getElementById("prpoPpSrcSel");
+  s1.value = prpoPoSrc; s2.value = prpoPoSort; s3.value = prpoPpSrc;
+  s1.onchange = () => { prpoPoSrc = s1.value; loadPrpoPoList(lastBrand); };
+  s2.onchange = () => { prpoPoSort = s2.value; loadPrpoPoList(lastBrand); };
+  s3.onchange = () => { prpoPpSrc = s3.value; loadPrpoPoPrice(lastBrand); };
+  loadPrpoPoList(lastBrand); loadPrpoPoPrice(lastBrand);
+}
+
+const prpoOldApi = e => /404|not found/i.test(String(e && e.message)) ? "ยังโหลดไม่ได้ (API ยังไม่อัปเดต — รอ restart purchase-api)" : "โหลดไม่ได้: " + prpoEsc(e && e.message);
+
+async function loadPrpoPoList(brand){
+  const body = document.getElementById("prpoPoBody"), info = document.getElementById("prpoPoInfo");
+  if(!body) return;
+  body.innerHTML = `<tr><td colspan="9" class="loading">กำลังโหลด…</td></tr>`;
+  try{
+    const d = await api(`/api/prpo/po-list?brand=${brand}${dp()}&src=${prpoPoSrc}&sort=${prpoPoSort}&limit=500`);
+    const rows = d.rows || [];
+    if(info) info.textContent = `${fmtN(d.total)} ใบ · ${fmtB(d.total_amount)}` + (d.total > rows.length ? ` (แสดง ${fmtN(rows.length)} ใบ${prpoPoSort==="amount"?"ยอดสูงสุด":"ล่าสุด"})` : "");
+    body.innerHTML = rows.map(r=>`<tr>
+      <td style="white-space:nowrap">${bBadge(r.brand_code)}<b>${prpoEsc(r.po_id)}</b></td>
+      <td style="white-space:nowrap">${prpoEsc(String(r.po_date||"").slice(0,10))}</td>
+      <td>${prpoSrcBadge(r.src)}</td>
+      <td>${prpoEsc(r.vendor_name || r.vendor_acct || "-")}</td>
+      <td>${prpoEsc(r.location_name || r.invent_location || "-")}</td>
+      <td>${prpoEsc(r.header_group || "-")}</td>
+      <td class="num">${r.src==="mixed" ? fmtN(r.pr_lines)+"/" : ""}${fmtN(r.line_count)}</td>
+      <td class="num">${fmtB(r.po_amount)}</td>
+      <td style="font-size:12px">${prpoEsc(r.pr_ids || "—")}</td></tr>`).join("")
+      || `<tr><td colspan="9" style="color:var(--muted)">ไม่มี PO ในกลุ่มนี้</td></tr>`;
+  }catch(e){
+    body.innerHTML = `<tr><td colspan="9" class="err">${prpoOldApi(e)}</td></tr>`;
+  }
+}
+
+async function loadPrpoPoPrice(brand){
+  const tiles = document.getElementById("prpoPpTiles"), body = document.getElementById("prpoPpBody");
+  if(!body) return;
+  body.innerHTML = `<tr><td colspan="9" class="loading">กำลังโหลด…</td></tr>`;
+  try{
+    const d = await api(`/api/prpo/po-price?brand=${brand}${dp()}&src=${prpoPpSrc}&limit=50`);
+    const sgn = v => (v>0?"+":"") + fmtB(v);
+    const col = v => v>0 ? "var(--c4)" : (v<0 ? "var(--c3)" : "var(--ink)");
+    const tile = (label, x, dot) => `
+      <div class="kpi"><div class="label">${dot?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(${dot});margin-right:6px"></span>`:""}${label}</div>
+        <div class="value" style="color:${col(+x.impact)}">${sgn(+x.impact)}</div>
+        <div class="sub">${fmtN(x.n_lines)} บรรทัด · แพงขึ้น ${fmtN(x.up_lines)} · ถูกลง ${fmtN(x.down_lines)}</div>
+        ${+x.outlier_lines ? `<div class="sub" style="font-size:11px">ข้าม ${fmtN(x.outlier_lines)} บรรทัด (ราคาต่าง >5 เท่า)</div>` : ""}</div>`;
+    const sm = d.summary || {};
+    tiles.innerHTML = tile("ผลต่างรวม (ทุกที่มา)", d.total || {}, "") +
+      PRPO_SRC.map(([key, label, c]) => tile(label, sm[key] || {}, c)).join("");
+    body.innerHTML = (d.items||[]).map(it=>{
+      const up = (+it.diff_pct||0) > 0;
+      return `<tr><td>${bBadge(it.brand_code)}${prpoEsc(it.item_name)}<div class="sub" style="font-size:11px">${prpoEsc(it.item_id)}</div></td>
+        <td>${String(it.srcs||"").split(",").filter(Boolean).map(prpoSrcBadge).join(" ")}</td>
+        <td>${prpoEsc(it.unit||"")}</td><td class="num">${fmtN(it.n_lines)}</td>
+        <td class="num">${fmtP(it.prev_price)}</td><td class="num">${fmtP(it.po_price)}</td>
+        <td class="num"><span class="badge" style="${up?"background:var(--c4);color:#fff":"background:var(--c3);color:#fff"}">${up?"▲":"▼"} ${Math.abs(+it.diff_pct||0).toFixed(1)}%</span></td>
+        <td class="num">${fmtN(it.qty)}</td>
+        <td class="num" style="color:${col(+it.impact)};font-weight:600">${sgn(+it.impact)}</td></tr>`;
+    }).join("") || `<tr><td colspan="9" style="color:var(--muted)">ไม่มีสินค้าที่ราคาต่างจากครั้งก่อน</td></tr>`;
+  }catch(e){
+    if(tiles) tiles.innerHTML = "";
+    body.innerHTML = `<tr><td colspan="9" class="err">${prpoOldApi(e)}</td></tr>`;
+  }
 }
 
 async function loadPrpoList(brand){
